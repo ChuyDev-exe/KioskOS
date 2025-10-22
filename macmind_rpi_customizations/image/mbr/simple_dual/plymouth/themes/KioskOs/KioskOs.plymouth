@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=KioskOs Splash
+Description=A KioskOs themed splash screen
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/KioskOs/
+ScriptFile=/usr/share/plymouth/themes/KioskOs/KioskOs-splash.script

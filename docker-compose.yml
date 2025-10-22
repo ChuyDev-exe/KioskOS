@@ -1,0 +1,9 @@
+services:
+    macmind_rpi_w_splash:
+        build: .
+        privileged: true
+        stdin_open: true
+        tty: true
+        image: macmind_rpi_w_splash:latest
+        volumes:
+            - ./macmind_rpi_customizations:/home/imagegen/macmind_rpi_customizations

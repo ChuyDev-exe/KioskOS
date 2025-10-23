@@ -3,12 +3,12 @@
 set -eu
 
 BUILD_ID=${RANDOM}
-RPI_BUILD_SVC="macmind_rpi_w_splash"
+RPI_BUILD_SVC="adagi_os"
 RPI_BUILD_USER="imagegen"
-RPI_CUSTOMIZATIONS_DIR="macmind_rpi_customizations"
+RPI_CUSTOMIZATIONS_DIR="kiosk_os"
 RPI_CONFIG=${RPI_BUILD_SVC}
 RPI_OPTIONS=${RPI_BUILD_SVC}
-RPI_IMAGE_NAME="macmind_rpi_w_splash"
+RPI_IMAGE_NAME="adagi_os"
 SAVE_SBOM=1
 
 ensure_cleanup() {

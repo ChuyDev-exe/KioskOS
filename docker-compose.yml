@@ -1,9 +1,9 @@
 services:
-    macmind_rpi_w_splash:
+    adagi_os:
         build: .
         privileged: true
         stdin_open: true
         tty: true
-        image: macmind_rpi_w_splash:latest
+        image: adagi_os:latest
         volumes:
-            - ./macmind_rpi_customizations:/home/imagegen/macmind_rpi_customizations
+            - ./kiosk_os:/home/imagegen/kiosk_os

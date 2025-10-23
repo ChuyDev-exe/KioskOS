@@ -28,16 +28,13 @@ RUN /bin/bash -c '\
       As of Apr 2025 rpi-image-gen install_deps exits if arm arch is not detected. \
       Override binfmt_misc_required flag and install known amd64 deps that are not \
       provided in the depends file" && \
-
       sed -i "s|\"\${binfmt_misc_required}\" == \"1\"|! -z \"\"|g" rpi-image-gen/scripts/dependencies_check && \
-
       if cat /proc/filesystems | grep -q binfmt_misc; then \
         echo \"binfmt_misc is supported\" ; \
       else \
         echo \"binfmt_misc is not supported. Install binfmt-support on your host machine\" ; \
         exit 1 ; \
       fi && \
-
       apt-get update && \
       apt-get install --no-install-recommends -y \
         qemu-user-static \

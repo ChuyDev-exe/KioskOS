@@ -7,3 +7,14 @@ services:
         image: adagi_os:latest
         volumes:
             - ./kiosk_os:/home/imagegen/kiosk_os
+    
+    manager-os:
+        build:
+            context: ./manager-os
+            dockerfile: Dockerfile.manager
+        privileged: true
+        stdin_open: true
+        tty: true
+        image: manager-os:latest
+        volumes:
+            - ./manager-os:/app

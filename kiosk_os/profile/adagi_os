@@ -2,7 +2,6 @@
 
 debian/bookworm/arm64/base-apt
 rpi/debian/bookworm/apt
-display-rotation
 customizations
 rpi/misc-utils
 rpi/base/essential

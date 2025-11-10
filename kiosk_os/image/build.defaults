@@ -14,7 +14,7 @@ compression=none
 # aggregated into the configuration. A layout may require a profile in
 # order to support certain functionality (eg particular packages needed).
 # A layout may define this in its options file.
-profile=
+#profile=
 
 # The base name for all generated images
 name="${IGconf_device_class}-${IGconf_device_variant}-${IGconf_image_version}"

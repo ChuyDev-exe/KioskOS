@@ -17,7 +17,7 @@ cat ../kiosk-conf/wifi_setup.service.tpl | sed \
 $BDEBSTRAP_HOOKS/enable-units "$1" wifi_setup
 
 # We'll run chromium like this
-APP="/usr/bin/chromium-browser http://localhost:8080 \
+APP="/usr/bin/firefox-esr http://localhost:8080 \
    --kiosk --noerrdialogs --disable-infobars --disable-cursor \
    --no-first-run --ozone-platform=wayland \
    --enable-features=OverlayScrollbar --start-maximized"

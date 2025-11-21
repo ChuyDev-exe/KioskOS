@@ -17,10 +17,15 @@ cat ../kiosk-conf/wifi_setup.service.tpl | sed \
 $BDEBSTRAP_HOOKS/enable-units "$1" wifi_setup
 
 # We'll run chromium like this
-APP="/usr/bin/firefox-esr http://localhost:8080 \
-   --kiosk --noerrdialogs --disable-infobars --disable-cursor \
-   --no-first-run --ozone-platform=wayland \
-   --enable-features=OverlayScrollbar --start-maximized"
+# Install the kiosk launch script
+ROTATION=${IGconf_kiosk_rotation:-normal}
+cat ../kiosk-conf/kiosk-launch.sh.tpl | sed \
+   -e "s|<KIOSK_ROTATION>|$ROTATION|g" \
+   > $1/usr/local/bin/kiosk-launch.sh
+chmod +x $1/usr/local/bin/kiosk-launch.sh
+
+# We'll run our wrapper script
+APP="/usr/local/bin/kiosk-launch.sh"
 
 # Write out our systemd kiosk service
 cat ../kiosk-conf/kiosk.service.tpl | sed \

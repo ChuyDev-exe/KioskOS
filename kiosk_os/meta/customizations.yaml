@@ -5,6 +5,7 @@ mmdebstrap:
     - plymouth
     - plymouth-themes
     - cage
+    - wlr-randr
     - firefox-esr
   install-recommends: false
   customize-hooks:

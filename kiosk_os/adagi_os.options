@@ -1,3 +1,4 @@
 DEVICE_USER1=adagio
 DEVICE_USER1PASS=adagio
 kiosk_homepage_url=https://www.berel.com/
+kiosk_rotation=90

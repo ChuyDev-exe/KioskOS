@@ -36,3 +36,6 @@ cat ../kiosk-conf/kiosk.service.tpl | sed \
 
 # # Enable the kiosk service so it starts automatically
 $BDEBSTRAP_HOOKS/enable-units "$1" kiosk
+
+# Mask getty on tty1 to prevent login prompt
+systemctl --root=$1 mask getty@tty1.service

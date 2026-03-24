@@ -13,8 +13,28 @@
 # X-Env-Var-rotation: normal
 # X-Env-Var-rotation-Desc: Screen rotation angle applied via wlr-randr (normal, 90, 180, 270)
 # X-Env-Var-rotation-Required: n
-# X-Env-Var-rotation-Valid: keywords:normal,90,180,270
+# X-Env-Var-rotation-Valid: keywords:0,normal,90,180,270
 # X-Env-Var-rotation-Set: y
+# X-Env-Var-wifi_ssid: 
+# X-Env-Var-wifi_ssid-Desc: Optional preconfigured WiFi SSID for first boot
+# X-Env-Var-wifi_ssid-Required: n
+# X-Env-Var-wifi_ssid-Valid: string
+# X-Env-Var-wifi_ssid-Set: y
+# X-Env-Var-wifi_psk: 
+# X-Env-Var-wifi_psk-Desc: Optional WiFi password (WPA/WPA2) for preconfigured SSID
+# X-Env-Var-wifi_psk-Required: n
+# X-Env-Var-wifi_psk-Valid: string
+# X-Env-Var-wifi_psk-Set: y
+# X-Env-Var-ssh_enable: 1
+# X-Env-Var-ssh_enable-Desc: Enable SSH service on first boot (1 or 0)
+# X-Env-Var-ssh_enable-Required: n
+# X-Env-Var-ssh_enable-Valid: keywords:0,1,true,false
+# X-Env-Var-ssh_enable-Set: y
+# X-Env-Var-ssh_authorized_key: 
+# X-Env-Var-ssh_authorized_key-Desc: Optional public key added to ~/.ssh/authorized_keys for the kiosk user
+# X-Env-Var-ssh_authorized_key-Required: n
+# X-Env-Var-ssh_authorized_key-Valid: string
+# X-Env-Var-ssh_authorized_key-Set: y
 # METAEND
 ---
 mmdebstrap:
@@ -24,6 +44,7 @@ mmdebstrap:
     - cage
     - wlr-randr
     - firefox-esr
+        - openssh-server
   install-recommends: false
   customize-hooks:
     - |-
@@ -34,6 +55,11 @@ mmdebstrap:
       PLYMOUTH_SRC="$SRCROOT/image/mbr/simple_dual/plymouth/themes/KioskOs"
 
       ROTATION="${IGconf_kiosk_rotation:-normal}"
+      WIFI_SSID="${IGconf_kiosk_wifi_ssid:-}"
+      WIFI_PSK="${IGconf_kiosk_wifi_psk:-}"
+      SSH_ENABLE="${IGconf_kiosk_ssh_enable:-1}"
+      SSH_AUTHORIZED_KEY="${IGconf_kiosk_ssh_authorized_key:-}"
+
       # Map numeric 0 to "normal" for wlr-randr compatibility
       if [ "$ROTATION" = "0" ]; then
           ROTATION="normal"
@@ -61,6 +87,36 @@ mmdebstrap:
       install -m 644 \
           "$OVERLAY/etc/systemd/system/wpa_supplicant@wlan0.service" \
           "$1/etc/systemd/system/wpa_supplicant@wlan0.service"
+
+      # ── Optional preconfigured WiFi for first boot ────────────────────────
+      if [ -n "$WIFI_SSID" ]; then
+          WIFI_SSID_ESC=$(printf '%s' "$WIFI_SSID" | sed 's/[\\"]/\\\\&/g')
+          if [ -n "$WIFI_PSK" ]; then
+              WIFI_PSK_ESC=$(printf '%s' "$WIFI_PSK" | sed 's/[\\"]/\\\\&/g')
+              printf '%s\n' \
+                  'ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev' \
+                  'update_config=1' \
+                  'country=US' \
+                  'network={' \
+                  '    ssid="'"${WIFI_SSID_ESC}"'"' \
+                  '    psk="'"${WIFI_PSK_ESC}"'"' \
+                  '    scan_ssid=1' \
+                  '}' \
+                  > "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+          else
+              printf '%s\n' \
+                  'ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev' \
+                  'update_config=1' \
+                  'country=US' \
+                  'network={' \
+                  '    ssid="'"${WIFI_SSID_ESC}"'"' \
+                  '    key_mgmt=NONE' \
+                  '    scan_ssid=1' \
+                  '}' \
+                  > "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+          fi
+          chmod 600 "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+      fi
 
       # ── wifi_setup.service (from template) ────────────────────────────────
       sed "s|<KIOSK_HOMEPAGE_URL>|${IGconf_kiosk_homepage_url}|g" \
@@ -125,6 +181,16 @@ mmdebstrap:
           > "$1/usr/lib/firefox-esr/distribution/policies.json"
       chroot "$1" chown -R ${IGconf_device_user1}:${IGconf_device_user1} "/home/${IGconf_device_user1}/.mozilla"
 
+      # ── Optional SSH key for kiosk user ───────────────────────────────────
+      if [ -n "$SSH_AUTHORIZED_KEY" ]; then
+          SSH_DIR="$1/home/${IGconf_device_user1}/.ssh"
+          mkdir -p "$SSH_DIR"
+          printf '%s\n' "$SSH_AUTHORIZED_KEY" > "$SSH_DIR/authorized_keys"
+          chmod 700 "$SSH_DIR"
+          chmod 600 "$SSH_DIR/authorized_keys"
+          chroot "$1" chown -R ${IGconf_device_user1}:${IGconf_device_user1} "/home/${IGconf_device_user1}/.ssh"
+      fi
+
       # ── Static frontend files ──────────────────────────────────────────────
       cp -r "$OVERLAY/static/." "$1/static/"
 
@@ -153,6 +219,9 @@ mmdebstrap:
       systemctl --root="$1" enable wpa_supplicant@wlan0.service
       systemctl --root="$1" enable kiosk.service
       systemctl --root="$1" enable unblock-wifi.service
+      if [ "$SSH_ENABLE" = "1" ] || [ "$SSH_ENABLE" = "true" ]; then
+          systemctl --root="$1" enable ssh.service || systemctl --root="$1" enable ssh
+      fi
 
       # ── Mask getty on tty1 (prevent login prompt) ─────────────────────────
       systemctl --root="$1" mask getty@tty1.service

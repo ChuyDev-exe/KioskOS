@@ -2,3 +2,14 @@ DEVICE_USER1=adagio
 DEVICE_USER1PASS=adagio
 kiosk_homepage_url=https://www.facebook.com/
 kiosk_rotation=180
+
+# WiFi preconfigurado para primer arranque (opcional)
+kiosk_wifi_ssid=
+kiosk_wifi_psk=
+
+# SSH en primer arranque (1=habilitado, 0=deshabilitado)
+kiosk_ssh_enable=1
+
+# Clave pública SSH opcional para acceso sin password
+# Ejemplo: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... tu_usuario@equipo
+kiosk_ssh_authorized_key=

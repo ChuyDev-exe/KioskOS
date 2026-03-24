@@ -20,3 +20,7 @@ layer:
 kiosk:
   homepage_url: https://www.facebook.com/
   rotation: "180"
+  wifi_ssid: ""
+  wifi_psk: ""
+  ssh_enable: "1"
+  ssh_authorized_key: ""

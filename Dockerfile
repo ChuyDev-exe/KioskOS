@@ -10,8 +10,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
       gpg-agent \
   && rm -rf /var/lib/apt/lists/*
 
-ARG RPIIG_GIT_SHA=bc3d223e76e2a0b069034fa6c6399232fa4241da
-RUN git clone --no-checkout https://github.com/raspberrypi/rpi-image-gen.git && cd rpi-image-gen && git checkout ${RPIIG_GIT_SHA}
+RUN git clone --branch master --depth 1 https://github.com/raspberrypi/rpi-image-gen.git
 
 ARG TARGETARCH
 RUN echo "Building for architecture: ${TARGETARCH}"
@@ -59,3 +58,13 @@ USER ${USER}
 WORKDIR /home/${USER}
 
 RUN /bin/bash -c 'cp -r /rpi-image-gen ~/'
+
+# Patch IDP v2 schema to include pi3 (exists as a device layer but was omitted from schema enum)
+RUN python3 -c "\
+import json; \
+path = 'rpi-image-gen/layer/base/schemas/idp/v2/schema.json'; \
+d = json.load(open(path)); \
+enum = d['properties']['IGmeta']['properties']['IGconf_device_class']['enum']; \
+'pi3' not in enum and enum.insert(0, 'pi3'); \
+open(path, 'w').write(json.dumps(d, indent=4)) \
+"

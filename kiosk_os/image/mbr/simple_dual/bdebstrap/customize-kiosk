@@ -16,6 +16,9 @@ cat ../kiosk-conf/wifi_setup.service.tpl | sed \
 # # Enable the wifi_setup service so it starts automatically
 $BDEBSTRAP_HOOKS/enable-units "$1" wifi_setup
 
+# Enable wpa_supplicant service for wlan0 to persist WiFi configuration
+$BDEBSTRAP_HOOKS/enable-units "$1" wpa_supplicant@wlan0
+
 # We'll run chromium like this
 # Install the kiosk launch script
 ROTATION=${IGconf_kiosk_rotation:-normal}

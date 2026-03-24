@@ -8,10 +8,36 @@ BINARY_NAME="wifi_setup_service"
 RPI_BUILD_SVC="adagi_os"
 RPI_BUILD_USER="imagegen"
 RPI_CUSTOMIZATIONS_DIR="kiosk_os"
-RPI_CONFIG=${RPI_BUILD_SVC}
-RPI_OPTIONS=${RPI_BUILD_SVC}
 RPI_IMAGE_NAME="adagi_os"
 SAVE_SBOM=1
+OPTIONS_FILE="./${RPI_CUSTOMIZATIONS_DIR}/adagi_os.options"
+CONFIG_FILE="./${RPI_CUSTOMIZATIONS_DIR}/config/adagi_os.yaml"
+
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/[&|]/\\&/g'
+}
+
+sync_config_from_options() {
+  if [ ! -f "$OPTIONS_FILE" ] || [ ! -f "$CONFIG_FILE" ]; then
+    return
+  fi
+
+  local homepage_url rotation homepage_url_escaped rotation_escaped
+  homepage_url=$(awk -F= '/^kiosk_homepage_url=/{print substr($0, index($0, "=") + 1)}' "$OPTIONS_FILE" | tail -n 1)
+  rotation=$(awk -F= '/^kiosk_rotation=/{print substr($0, index($0, "=") + 1)}' "$OPTIONS_FILE" | tail -n 1)
+
+  if [ -n "${homepage_url:-}" ]; then
+    homepage_url_escaped=$(escape_sed_replacement "$homepage_url")
+    sed -i.bak -E "s|^([[:space:]]*homepage_url:).*|\1 ${homepage_url_escaped}|" "$CONFIG_FILE"
+  fi
+
+  if [ -n "${rotation:-}" ]; then
+    rotation_escaped=$(escape_sed_replacement "$rotation")
+    sed -i.bak -E "s|^([[:space:]]*rotation:).*|\1 \"${rotation_escaped}\"|" "$CONFIG_FILE"
+  fi
+
+  rm -f "$CONFIG_FILE.bak"
+}
 
 ensure_cleanup() {
   echo "Cleanup containers..."
@@ -34,12 +60,16 @@ ensure_cleanup() {
 # Set the trap to execute the ensure_cleanup function on EXIT
 trap ensure_cleanup EXIT
 
+sync_config_from_options
+
 docker compose build ${BINARY_BUILD_SVC}
 
 docker compose run --name ${BINARY_BUILD_SVC}-${BUILD_ID} -d ${BINARY_BUILD_SVC} \
   && docker compose exec ${BINARY_BUILD_SVC} bash -c "cargo build --release --target aarch64-unknown-linux-gnu" \
   && CID=$(docker ps -a --filter "name=${BINARY_BUILD_SVC}-${BUILD_ID}" --format "{{.ID}}" | head -n 1) \
-  && docker cp ${CID}:/app/target/aarch64-unknown-linux-gnu/release/${BINARY_NAME} ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME}
+  && docker cp ${CID}:/app/target/aarch64-unknown-linux-gnu/release/${BINARY_NAME} ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME} \
+  && rm -rf ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static \
+  && docker cp ${CID}:/app/static ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static
 
 # Build a customer raspberry pi image
 # with the wifi setup service included
@@ -49,12 +79,17 @@ docker compose build ${RPI_BUILD_SVC}
 
 echo "🚀 Running image generation in container..."
 docker compose run --name ${RPI_BUILD_SVC}-${BUILD_ID} -d ${RPI_BUILD_SVC} \
-  && docker compose exec ${RPI_BUILD_SVC} bash -c "/home/${RPI_BUILD_USER}/rpi-image-gen/build.sh -D /home/${RPI_BUILD_USER}/${RPI_CUSTOMIZATIONS_DIR} -c ${RPI_CONFIG} -o /home/${RPI_BUILD_USER}/${RPI_CUSTOMIZATIONS_DIR}/${RPI_OPTIONS}.options" \
+  && docker compose exec ${RPI_BUILD_SVC} bash -c \
+     "cd /home/${RPI_BUILD_USER} && ./rpi-image-gen/rpi-image-gen build \
+      -S /home/${RPI_BUILD_USER}/${RPI_CUSTOMIZATIONS_DIR} \
+      -c adagi_os.yaml" \
   && CID=$(docker ps -a --filter "name=${RPI_BUILD_SVC}-${BUILD_ID}" --format "{{.ID}}" | head -n 1) \
-  && docker cp ${CID}:/home/${RPI_BUILD_USER}/rpi-image-gen/work/${RPI_IMAGE_NAME}/deploy/${RPI_IMAGE_NAME}.img ./deploy/${RPI_IMAGE_NAME}.img \
+  && IMG_PATH=$(docker exec ${CID} find /home/${RPI_BUILD_USER}/work -name "${RPI_IMAGE_NAME}.img" 2>/dev/null | head -1) \
+  && docker cp ${CID}:"${IMG_PATH}" ./deploy/${RPI_IMAGE_NAME}.img
 
 if [[ "${SAVE_SBOM}" == "1" ]]; then
-  docker cp ${CID}:/home/${RPI_BUILD_USER}/rpi-image-gen/work/${RPI_IMAGE_NAME}/deploy/${RPI_IMAGE_NAME}.sbom ./deploy/${RPI_IMAGE_NAME}.sbom
+  SBOM_PATH=$(docker exec ${CID} find /home/${RPI_BUILD_USER}/work -name "${RPI_IMAGE_NAME}.sbom" 2>/dev/null | head -1)
+  [[ -n "${SBOM_PATH:-}" ]] && docker cp ${CID}:"${SBOM_PATH}" ./deploy/${RPI_IMAGE_NAME}.sbom || true
 fi
 
 echo "🚀 Completed -> ${RPI_CUSTOMIZATIONS_DIR}/deploy/${RPI_IMAGE_NAME}.img"

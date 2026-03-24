@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KioskApp — WiFi Setup</title>
+    <script type="module" src="/static/tailwind.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body class="bg-[#050d15] text-white min-h-screen flex flex-col items-center justify-center p-4 ">
+    <!-- Stepper control -->
+    <div id="stepper" class="stepper" aria-label="Steps">
+        <button id="reset-step" class="step-btn" data-action="reset">Reset</button>
+    </div>
+    <div class="Sec-form flex flex-col items-center justify-center text-center w-full intro">
+        <h1 class="text-2xl font-light mb-2 text-gray-300">Welcome to</h1>
+        <h2 class="text-5xl font-bold mb-8 gradient-text">
+            KioskApp
+        </h2>
+        <div class="mb-12">
+            <h2 class="text-lg font-light mb-1 text-gray-400">by</h2>
+            <h2 class="text-3xl font-semibold">
+                <span class="text-[#4facfe]">Adag</span><span class="text-[#00f2fe]">IO</span>
+            </h2>
+        </div>
+        <button type="button"
+            class="cursor-pointer next-step btn-gradient text-white font-medium py-3 px-8 rounded-full flex items-center gap-2 outline-none ring-none">
+            <span>Setup Kiosk</span>
+        </button>
+    </div>
+
+    <div class="Sec-form hidden flex-col items-center justify-center w-full">
+        <div class="text-center mb-8">
+            <h2 class="text-2xl font-bold gradient-text mb-2">WiFi Setup</h2>
+            <p class="text-gray-400">Connect your device to the network</p>
+        </div>
+
+        <form method="POST" action="/set_wifi" class="space-y-6" id="wifi-form">
+            <div class="flex flex-col space-y-2">
+                <label class="text-gray-300 font-semibold">SSID</label>
+                <div class="flex items-center relative">
+                    <select name="network" id="network-select"
+                    style="appearance: none; -webkit-appearance: none; -moz-appearance: none;"
+                        class="w-full bg-[#0f1f2f] text-gray-200 border border-gray-600 rounded-md py-3 px-4  focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select Network</option>
+                    </select>
+
+                    <button id="Load_network"
+                        type="button"
+                        class="absolute p-2  right-3 top-1/2 transform -translate-y-1/2  bg-[#0f1f2f] hover:bg-gray-600 text-gray-200 rounded-xl transition duration-200 shadow-md hover:shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 20 20">
+                            <title>reload</title>
+                            <g fill="currentColor">
+                                <path
+                                    d="M13.937 4.211a1 1 0 0 1-1.126 1.653A5 5 0 1 0 15 10a1 1 0 1 1 2 0a7 7 0 1 1-3.063-5.789" />
+                                <path d="M13.539 12.506a1 1 0 1 1-1.078-1.685l3.482-2.227a1 1 0 0 1 1.077 1.685z" />
+                                <path d="M18.903 12.41a1 1 0 0 1-1.826.815l-1.508-3.38a1 1 0 1 1 1.826-.815z" />
+                            </g>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-gray-300 mb-2 font-medium">Password</label>
+                <div class="relative">
+                    <input type="password" name="password" id="pwd"
+                        class="w-full bg-[#0f1f2f] border border-gray-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:ring-2 focus:ring-[#4facfe] transition-all"
+                        placeholder="Enter password" aria-label="password" required>
+                    <button type="button" id="pwd-btn"
+                        class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors border-none bg-transparent outline-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" class="size-5">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div id="status-message" class="text-sm text-center hidden"></div>
+
+            <div class="pt-2 flex space-x-3">
+                <button type="submit"
+                    class="w-full text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all"
+                    id="connect-btn">
+                    <span>Connect</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                        stroke="currentColor" class="size-5">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
+                    </svg>
+                </button>
+                <button type="button" id="start-kiosk-btn"
+                    class="w-full hidden bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all">
+                    <span>Start Kiosk</span>
+                </button>
+                <button type="button"
+                    class="w-full next-step border border-gray-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 bg-transparent ring-0">
+                    <span>Content</span>
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="Sec-form hidden flex-col items-center justify-center w-full">
+        <div class="text-center mb-6">
+            <h2 class="text-2xl font-bold gradient-text mb-2">Content Setup</h2>
+        </div>
+        <form method="POST" action="/set_wifi" class="space-y-6" id="wifi-form">
+            <div class="container">
+                <div class="radio-tile-group">
+                    <div class="input-container">
+                        <input id="drive" class="radio-button" type="radio" name="radio">
+                        <div class="radio-tile">
+                            <div class="icon car-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
+                                    <title xmlns="">docker</title>
+                                    <path fill="currentColor"
+                                        d="M21.81 10.25c-.06-.04-.56-.43-1.64-.43c-.28 0-.56.03-.84.08c-.21-1.4-1.38-2.11-1.43-2.14l-.29-.17l-.18.27c-.24.36-.43.77-.51 1.19c-.2.8-.08 1.56.33 2.21c-.49.28-1.29.35-1.46.35H2.62c-.34 0-.62.28-.62.63c0 1.15.18 2.3.58 3.38c.45 1.19 1.13 2.07 2 2.61c.98.6 2.59.94 4.42.94c.79 0 1.61-.07 2.42-.22c1.12-.2 2.2-.59 3.19-1.16A8.3 8.3 0 0 0 16.78 16c1.05-1.17 1.67-2.5 2.12-3.65h.19c1.14 0 1.85-.46 2.24-.85c.26-.24.45-.53.59-.87l.08-.24zm-17.96.99h1.76c.08 0 .16-.07.16-.16V9.5c0-.08-.07-.16-.16-.16H3.85c-.09 0-.16.07-.16.16v1.58c.01.09.07.16.16.16m2.43 0h1.76c.08 0 .16-.07.16-.16V9.5c0-.08-.07-.16-.16-.16H6.28c-.09 0-.16.07-.16.16v1.58c.01.09.07.16.16.16m2.47 0h1.75c.1 0 .17-.07.17-.16V9.5c0-.08-.06-.16-.17-.16H8.75c-.08 0-.15.07-.15.16v1.58c0 .09.06.16.15.16m2.44 0h1.77c.08 0 .15-.07.15-.16V9.5c0-.08-.06-.16-.15-.16h-1.77c-.08 0-.15.07-.15.16v1.58c0 .09.07.16.15.16M6.28 9h1.76c.08 0 .16-.09.16-.18V7.25c0-.09-.07-.16-.16-.16H6.28c-.09 0-.16.06-.16.16v1.57c.01.09.07.18.16.18m2.47 0h1.75c.1 0 .17-.09.17-.18V7.25c0-.09-.06-.16-.17-.16H8.75c-.08 0-.15.06-.15.16v1.57c0 .09.06.18.15.18m2.44 0h1.77c.08 0 .15-.09.15-.18V7.25c0-.09-.07-.16-.15-.16h-1.77c-.08 0-.15.06-.15.16v1.57c0 .09.07.18.15.18m0-2.28h1.77c.08 0 .15-.07.15-.16V5c0-.1-.07-.17-.15-.17h-1.77c-.08 0-.15.06-.15.17v1.56c0 .08.07.16.15.16m2.46 4.52h1.76c.09 0 .16-.07.16-.16V9.5c0-.08-.07-.16-.16-.16h-1.76c-.08 0-.15.07-.15.16v1.58c0 .09.07.16.15.16" />
+                                </svg>
+                            </div>
+                            <label for="drive" class="radio-tile-label">Docker</label>
+                        </div>
+                    </div>
+
+                    <div class="input-container">
+                        <input id="walk" class="radio-button" type="radio" name="radio">
+                        <div class="radio-tile">
+                            <div class="icon walk-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
+                                    <title xmlns="">link-line</title>
+                                    <g fill="none">
+                                        <path
+                                            d="m12.593 23.258l-.011.002l-.071.035l-.02.004l-.014-.004l-.071-.035q-.016-.005-.024.005l-.004.01l-.017.428l.005.02l.01.013l.104.074l.015.004l.012-.004l.104-.074l.012-.016l.004-.017l-.017-.427q-.004-.016-.017-.018m.265-.113l-.013.002l-.185.093l-.01.01l-.003.011l.018.43l.005.012l.008.007l.201.093q.019.005.029-.008l.004-.014l-.034-.614q-.005-.018-.02-.022m-.715.002a.02.02 0 0 0-.027.006l-.006.014l-.034.614q.001.018.017.024l.015-.002l.201-.093l.01-.008l.004-.011l.017-.43l-.003-.012l-.01-.01z" />
+                                        <path fill="currentColor"
+                                            d="M10.232 10.231a5 5 0 0 1 6.89-.172l.181.172l2.828 2.829a5 5 0 0 1-6.89 7.243l-.18-.172l-2.122-2.122a1 1 0 0 1 1.32-1.497l.094.083l2.122 2.122a3 3 0 0 0 4.377-4.1l-.135-.143l-2.828-2.828a3 3 0 0 0-4.243 0a1 1 0 0 1-1.414-1.415M3.868 3.867a5 5 0 0 1 6.89-.172l.181.172L13.06 5.99a1 1 0 0 1-1.32 1.497l-.094-.083l-2.121-2.121A3 3 0 0 0 5.147 9.38l.135.144l2.829 2.829a3 3 0 0 0 4.242 0a1 1 0 1 1 1.415 1.414a5 5 0 0 1-6.89.172l-.182-.172l-2.828-2.829a5 5 0 0 1 0-7.07Z" />
+                                    </g>
+                                </svg>
+                            </div>
+                            <label for="walk" class="radio-tile-label">Url</label>
+                        </div>
+                    </div>
+
+                    <div class="input-container">
+                        <input id="bike" class="radio-button" type="radio" name="radio">
+                        <div class="radio-tile">
+                            <div class="icon bike-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
+                                    <title xmlns="">usb</title>
+                                    <path fill="currentColor"
+                                        d="M12 22q-.825 0-1.412-.587T10 20q0-.525.275-.975T11 18.3V16H8q-.825 0-1.412-.587T6 14v-2.3q-.45-.225-.725-.675T5 10q0-.825.588-1.413T7 8t1.413.588T9 10q0 .575-.275 1T8 11.7V14h3V6H9l3-4l3 4h-2v8h3v-2h-1V8h4v4h-1v2q0 .825-.587 1.413T16 16h-3v2.3q.475.25.738.7T14 20q0 .825-.587 1.413T12 22" />
+                                </svg>
+                            </div>
+                            <label for="bike" class="radio-tile-label">Usb</label>
+                        </div>
+                    </div>
+
+                    <div class="input-container">
+                        <input id="drive" class="radio-button" type="radio" name="radio">
+                        <div class="radio-tile">
+                            <div class="icon car-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><title xmlns="">cloud-outline</title><path fill="currentColor" fill-rule="evenodd" d="M12.932 6.208a3.91 3.91 0 0 0-3.524 2.214a.75.75 0 0 1-.947.373a4.375 4.375 0 1 0-1.586 8.455h11.648a2.978 2.978 0 1 0-.77-5.855a.75.75 0 0 1-.939-.812q.027-.229.027-.465a3.91 3.91 0 0 0-3.91-3.91m-4.552.986a5.41 5.41 0 0 1 9.952 2.605q.095-.004.191-.004a4.478 4.478 0 0 1 0 8.955H6.875A5.875 5.875 0 1 1 8.38 7.194" clip-rule="evenodd"/></svg>
+                            </div>
+                            <label for="drive" class="radio-tile-label">AdagIO</label>
+                        </div>
+                    </div>
+
+                    <div class="input-container">
+                        <input id="drive" class="radio-button" type="radio" name="radio">
+                        <div class="radio-tile">
+                            <div class="icon car-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 32 32">
+                                    <title xmlns="">qr-code</title>
+                                    <path fill="currentColor"
+                                        d="M24 28v-2h2v2zm-6-4v-2h2v2zm0 6h4v-2h-2v-2h-2zm8-4v-4h2v4zm2 0h2v4h-4v-2h2zm-2-6v-2h4v4h-2v-2zm-2 0h-2v4h-2v2h4zm-6 0v-2h4v2zM6 22h4v4H6z" />
+                                    <path fill="currentColor" d="M14 30H2V18h12zM4 28h8v-8H4zM22 6h4v4h-4z" />
+                                    <path fill="currentColor" d="M30 14H18V2h12zm-10-2h8V4h-8zM6 6h4v4H6z" />
+                                    <path fill="currentColor" d="M14 14H2V2h12ZM4 12h8V4H4Z" />
+                                </svg>
+                            </div>
+                            <label for="drive" class="radio-tile-label">Qr</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-2 flex space-x-6">
+                <button type="submit"
+                    class="w-full btn-gradient text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2"
+                    id="connect-btn">
+                    <span>Start Kiosk</span>
+                </button>
+                <button type="button"
+                    class="next-step w-full border border-gray-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 bg-transparent">
+                    <span>Return Start</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</body>
+<script src="/static/script.js"></script>
+
+</html>

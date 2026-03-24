@@ -5,7 +5,12 @@ After=multi-user.target
 [Service]
 User=<KIOSK_USER>
 TTYPath=/dev/tty1
-Environment="XDG_RUNTIME_DIR=<KIOSK_RUNDIR>"
+PAMName=login
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+Environment="HOME=/home/<KIOSK_USER>"
+Environment="XDG_RUNTIME_DIR=/run/user/%U"
 Restart=always
 ExecStart=/usr/bin/cage -- <KIOSK_APP>
 StandardError=journal

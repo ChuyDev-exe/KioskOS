@@ -1,6 +1,18 @@
+# Load and rotate image for portrait display
 image = Image("Logo.png");
-sprite = Sprite();
-sprite.SetImage(image);
 
-sprite.SetX(Window.GetX() + (Window.GetWidth() / 2 - image.GetWidth() / 2));
-sprite.SetY(Window.GetY() + (Window.GetHeight() / 2 - image.GetHeight() / 2));
+# Rotate image 90 degrees clockwise
+rotated_image = image.Rotate(4.71239);
+
+# Scale image proportionally to the current screen size.
+# Use the rotated screen width as the main limiter so the logo fits portrait mode.
+target_width = Window.GetWidth() * 0.55;
+scale = target_width / rotated_image.GetWidth();
+scaled_image = rotated_image.Scale(rotated_image.GetWidth() * scale, rotated_image.GetHeight() * scale);
+
+sprite = Sprite();
+sprite.SetImage(scaled_image);
+
+# Center the rotated and scaled image on screen
+sprite.SetX(Window.GetX() + (Window.GetWidth() / 2 - scaled_image.GetWidth() / 2));
+sprite.SetY(Window.GetY() + (Window.GetHeight() / 2 - scaled_image.GetHeight() / 2));

@@ -1,0 +1,125 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+/* Global */
+*{box-sizing:border-box;user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none}
+html,body{height:100%;margin:0}
+input,textarea,h1,h2,h3,h4,h5,p,span{user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none}
+
+/* Utilities */
+.size-5{width:1.25rem;height:1.25rem}
+.size-6{width:1.5rem;height:1.5rem}
+
+/* Typography helpers */
+.gradient-text{background:linear-gradient(90deg,#4facfe,#00f2fe);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+
+/* Buttons */
+.btn-gradient{background:linear-gradient(90deg,#4facfe 0%,#00f2fe 100%);box-shadow:0 6px 18px rgba(79,172,254,0.12);border:none;color:#fff}
+.btn-gradient{transition:transform .18s ease,box-shadow .18s ease}
+.btn-gradient:hover{transform:translateY(-2px);box-shadow:0 10px 20px rgba(79,172,254,0.28)}
+
+/* Intro animations */
+.intro{opacity:0;transform:translateY(20px);transition:opacity .6s ease,transform .6s ease}
+.intro.visible{opacity:1;transform:translateY(0)}
+.intro h1,.intro h2,.intro div,.intro button{opacity:0}
+.intro h1{animation:fadeInUp .6s ease .1s forwards}
+.intro h2{animation:fadeInUp .6s ease .2s forwards}
+.intro div{animation:fadeInUp .6s ease .35s forwards}
+.intro button{animation:fadeInUp .6s ease .5s forwards}
+
+@keyframes fadeInUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+/* Form container */
+.form-container{max-width:420px;padding:32px;background:#0a1726;border-radius:16px;box-shadow:0 12px 30px rgba(2,8,23,0.6);opacity:0;transform:translateY(12px) scale(.99);transition:opacity .45s ease,transform .45s ease}
+.form-container.visible{opacity:1;transform:translateY(0) scale(1)}
+
+/* Section show/hide (used by Sec-form elements) */
+
+.Sec-form{opacity:0;transform:translateY(12px) scale(.99);transition:opacity .36s ease,transform .36s ease}
+.Sec-form.flex{opacity:1;transform:translateY(0) scale(1)}
+
+/* Keep intro animation working when using `flex` class instead of `visible` */
+.intro.flex{opacity:1;transform:translateY(0)}
+
+/* Stepper */
+.stepper{position:fixed;top:18px;right:18px;display:flex;gap:8px;z-index:60}
+.stepper .step-btn{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.06);color:#cbd5e1;padding:8px 10px;border-radius:8px;cursor:pointer;min-width:36px;text-align:center;font-weight:600}
+.stepper .step-btn:hover{background:rgba(79,172,254,0.06);border-color:rgba(79,172,254,0.12);color:#fff}
+.stepper .step-btn.active{background:linear-gradient(90deg,#4facfe,#00f2fe);color:#001;box-shadow:0 6px 18px rgba(79,172,254,0.12)}
+
+@media (max-width:420px){.form-container{padding:18px}}
+
+/* Focus */
+input:focus,button:focus{outline:2px solid rgba(79,172,254,0.12);outline-offset:2px}
+/* From Uiverse.io by Pradeepsaranbishnoi */ 
+.container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.radio-tile-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.radio-tile-group .input-container {
+  position: relative;
+  height: 80px;
+  width: 80px;
+  margin: 0.5rem;
+}
+
+.radio-tile-group .input-container .radio-button {
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.radio-tile-group .input-container .radio-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border: 2px solid #079ad9;
+  border-radius: 5px;
+  padding: 1rem;
+  transition: transform 300ms ease;
+}
+
+.radio-tile-group .input-container .icon svg {
+  fill: #079ad9;
+  width: 2rem;
+  height: 2rem;
+}
+
+.radio-tile-group .input-container .radio-tile-label {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #079ad9;
+}
+
+.radio-tile-group .input-container .radio-button:checked + .radio-tile {
+  background-color: #079ad9;
+  border: 2px solid #079ad9;
+  color: white;
+  transform: scale(1.1, 1.1);
+}
+
+.radio-tile-group .input-container .radio-button:checked + .radio-tile .icon svg {
+  fill: white;
+  background-color: #079ad9;
+}
+
+.radio-tile-group .input-container .radio-button:checked + .radio-tile .radio-tile-label {
+  color: white;
+  background-color: #079ad9;
+}

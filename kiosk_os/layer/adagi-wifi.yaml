@@ -1,0 +1,28 @@
+# METABEGIN
+# X-Env-Layer-Name: adagi-wifi
+# X-Env-Layer-Category: app
+# X-Env-Layer-Desc: WiFi networking for KioskOS – brcm80211 firmware, wpa_supplicant, dhclient
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Requires: systemd-net-min
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - firmware-brcm80211
+    - rfkill
+    - wpasupplicant
+    - isc-dhcp-client
+    - wireless-tools
+    - iw
+  install-recommends: false
+  customize-hooks:
+    - |-
+      mkdir -p "$1/etc/systemd/network"
+      {
+        echo '[Match]'
+        echo 'Name=wlan0'
+        echo ''
+        echo '[Network]'
+        echo 'DHCP=yes'
+        echo 'IPv6AcceptRA=yes'
+      } > "$1/etc/systemd/network/25-wireless.network"

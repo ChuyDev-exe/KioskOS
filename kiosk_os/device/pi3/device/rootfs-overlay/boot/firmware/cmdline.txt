@@ -1,1 +1,1 @@
-console=tty1 root=PARTUUID=xxxxxxxx-xx rootfstype=ext4 fsck.repair=yes rootwait quiet splash loglevel=0 vt.global_cursor_default=0 systemd.show_status=false rd.systemd.show_status=false udev.log_priority=3 logo.nologo
+console=tty1 root=PARTUUID=xxxxxxxx-xx rootfstype=ext4 fsck.repair=yes rootwait quiet splash plymouth.ignore-serial-consoles loglevel=0 vt.global_cursor_default=0 systemd.show_status=false rd.systemd.show_status=false udev.log_priority=3 consoleblank=0 logo.nologo

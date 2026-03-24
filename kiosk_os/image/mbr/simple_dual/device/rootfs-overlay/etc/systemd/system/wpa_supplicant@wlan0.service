@@ -1,0 +1,16 @@
+[Unit]
+Description=WPA supplicant for %I
+Before=network.target
+After=dbus.service
+Wants=network.target
+IgnoreOnIsolate=true
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/sbin/wpa_supplicant -c/etc/wpa_supplicant/wpa_supplicant-%I.conf -i%I
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

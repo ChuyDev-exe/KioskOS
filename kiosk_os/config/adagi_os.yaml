@@ -1,0 +1,22 @@
+# KioskOS – main build configuration for Raspberry Pi 3
+# Edit this file to change kiosk URL, rotation, and credentials.
+# Then rebuild with: ./build.sh
+
+device:
+  layer: rpi3
+  user1: adagio
+  user1passhash: "$6$PLWPx8PFItGOcHnX$LnMk/iguhWmJ1nXY8LsOO9mqSNtt3dNIOM/CA//WyYldulQG8SEB4brz.jNQNnCR7xTuSiTWl6YlAiJckBIA01"
+
+image:
+  layer: image-rpios
+  boot_part_size: 125%
+  root_part_size: 125%
+  name: adagi_os
+
+layer:
+  base: bookworm-minbase
+  app: adagi-kiosk
+
+kiosk:
+  homepage_url: https://www.facebook.com/
+  rotation: "180"

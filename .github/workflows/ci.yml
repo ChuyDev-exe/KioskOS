@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: manager-os
+      - run: pip install cargo-zigbuild
+      - run: cd manager-os && cargo fmt --check
+      - run: cd manager-os && cargo clippy --target aarch64-unknown-linux-gnu -- -D warnings
+      - run: cd manager-os && cargo zigbuild --release --target aarch64-unknown-linux-gnu
+      - run: cd manager-os && cargo test
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install yamllint
+      - run: shellcheck build.sh scripts/*.sh kiosk_os/image/mbr/simple_dual/kiosk-conf/*.tpl
+      - run: yamllint kiosk_os/**/*.yaml
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx --yes prettier --check "manager-os/static/**/*.{js,css,html}"
+
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: /tmp/cargo-target-audit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+      - run: cd manager-os && cargo generate-lockfile
+      - run: cd manager-os && cargo audit
+      - run: cd manager-os && cargo deny check advisories

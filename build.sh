@@ -97,13 +97,6 @@ ensure_cleanup() {
     docker kill "${RPI_BUILD_SVC_CONTAINER_ID}" >/dev/null 2>&1 || true
     docker rm "${RPI_BUILD_SVC_CONTAINER_ID}" >/dev/null 2>&1 || true
   fi
-
-  BINARY_BUILD_SVC_CONTAINER_ID=$(docker ps -a --filter "name=${BINARY_BUILD_SVC}-${BUILD_ID}" --format "{{.ID}}" | head -n 1)
-  if [ -n "${BINARY_BUILD_SVC_CONTAINER_ID:-}" ]; then
-    echo "Killing container ${BINARY_BUILD_SVC_CONTAINER_ID}"
-    docker kill "${BINARY_BUILD_SVC_CONTAINER_ID}" >/dev/null 2>&1 || true
-    docker rm "${BINARY_BUILD_SVC_CONTAINER_ID}" >/dev/null 2>&1 || true
-  fi
   echo "Cleanup complete."
 }
 
@@ -112,17 +105,13 @@ trap ensure_cleanup EXIT
 
 sync_config_from_options
 
-docker compose build ${BINARY_BUILD_SVC}
-
-docker compose run --name ${BINARY_BUILD_SVC}-${BUILD_ID} -d ${BINARY_BUILD_SVC} \
-  && docker compose exec ${BINARY_BUILD_SVC} bash -c "cargo build --release --target aarch64-unknown-linux-gnu" \
-  && CID=$(docker ps -a --filter "name=${BINARY_BUILD_SVC}-${BUILD_ID}" --format "{{.ID}}" | head -n 1) \
-  && docker cp ${CID}:/app/target/aarch64-unknown-linux-gnu/release/${BINARY_NAME} ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME} \
-  && rm -rf ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static \
-  && docker cp ${CID}:/app/static ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static
-
-echo "🔨 Building Docker image with rpi-image-gen to create ${RPI_BUILD_SVC}..."
-docker compose build --pull never ${RPI_BUILD_SVC}
+# Precompile Tailwind CSS (skip if npx unavailable)
+if command -v npx &>/dev/null; then
+  if [ -f ./manager-os/static/tailwind.config.js ]; then
+    echo "🎨 Precompiling Tailwind CSS..."
+    (cd manager-os/static && npx --yes tailwindcss -i input.css -o tailwind-precompiled.css 2>/dev/null) || true
+  fi
+fi
 
 # Build binario Rust y base rpi-image-gen en paralelo
 BIN_BUILD_NEEDED=0
@@ -131,22 +120,57 @@ if [ ! -f ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overla
   BIN_BUILD_NEEDED=1
 fi
 
+STATIC_BUILD_NEEDED=0
+STATIC_DEST="./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static"
+if [ ! -d "$STATIC_DEST" ] || \
+     [ $(find ./manager-os/static -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) \
+        -newer "$STATIC_DEST" 2>/dev/null | wc -l) -gt 0 ]; then
+  STATIC_BUILD_NEEDED=1
+fi
+
 echo "🔨 Compilando binario Rust y base rpi-image-gen en paralelo..."
+
+# ── Rust binary build ───────────────────────────────────────────────────────
 if [ "$BIN_BUILD_NEEDED" = "1" ]; then
-  (
-    docker compose build --pull never ${BINARY_BUILD_SVC}
-    docker compose run --rm ${BINARY_BUILD_SVC} bash -c "cargo build --release --target aarch64-unknown-linux-gnu"
-    CID=$(docker ps -a --filter "name=${BINARY_BUILD_SVC}" --format "{{.ID}}" | head -n 1)
-    docker cp ${CID}:/app/target/aarch64-unknown-linux-gnu/release/${BINARY_NAME} ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME}
-    rm -rf ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static
-    docker cp ${CID}:/app/static ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static
-    docker rm -f ${CID} >/dev/null 2>&1 || true
-  ) &
+  USE_ZIGBUILD=0
+  if command -v cargo-zigbuild &>/dev/null; then
+    if cargo zigbuild --version &>/dev/null; then
+      USE_ZIGBUILD=1
+    fi
+  fi
+
+  if [ "$USE_ZIGBUILD" = "1" ]; then
+    echo "   → cargo-zigbuild detected — native cross-compile (fast path)"
+    (
+      cd manager-os
+      cargo zigbuild --release --target aarch64-unknown-linux-gnu
+      cd "$OLDPWD"
+      cp "./manager-os/target/aarch64-unknown-linux-gnu/release/${BINARY_NAME}" \
+         "./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME}"
+    ) &
+  else
+    (
+      docker compose build ${BINARY_BUILD_SVC}
+      CID=$(docker create ${BINARY_BUILD_SVC}:latest)
+      docker cp ${CID}:/wifi_setup_service \
+          "./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME}"
+      docker rm ${CID} >/dev/null 2>&1 || true
+    ) &
+  fi
 else
   echo "✅ Binario Rust ya está actualizado. Skipping build."
 fi
+
+# ── Static files ────────────────────────────────────────────────────────────
+if [ "$STATIC_BUILD_NEEDED" = "1" ]; then
+  (
+    rm -rf "./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static"
+    mkdir -p "./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static"
+    cp -a manager-os/static/. "./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static/"
+  ) &
+fi
 (
-  docker compose build --pull never ${RPI_BUILD_SVC}
+  docker compose build ${RPI_BUILD_SVC}
 ) &
 wait
 echo "✅ Builds paralelos terminados."
@@ -161,7 +185,7 @@ docker compose run --name ${RPI_BUILD_SVC}-${BUILD_ID} -d ${RPI_BUILD_SVC} \
   && IMG_PATH=$(docker exec ${CID} find /home/${RPI_BUILD_USER}/work -name "${RPI_IMAGE_NAME}.img" 2>/dev/null | head -1) \
   && docker cp ${CID}:"${IMG_PATH}" ./deploy/${RPI_IMAGE_NAME}.img
 
-if [[ "${SAVE_SBOM}" == "1" ]]; then
+if [[ "${SAVE_SBOM}" == "1" ]] && [[ -n "${CID:-}" ]]; then
   SBOM_PATH=$(docker exec ${CID} find /home/${RPI_BUILD_USER}/work -name "${RPI_IMAGE_NAME}.sbom" 2>/dev/null | head -1)
   [[ -n "${SBOM_PATH:-}" ]] && docker cp ${CID}:"${SBOM_PATH}" ./deploy/${RPI_IMAGE_NAME}.sbom || true
 fi

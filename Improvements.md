@@ -3,26 +3,26 @@
 Terse, actionable backlog. Paths relative to repo root. Each item = problem → fix. Pi 3 is target HW (weak CPU, ~1GB RAM, SD storage).
 
 ## BUGS (fix first)
-- `kiosk_os/config/adagi_os.yaml`: `homepage_url: hhttps://...` → typo `hhttps`. Fix to `https`.
-- `build.sh:115-125`: manager-os image build + full `cargo build --release` + `docker compose build adagi_os` run here, then AGAIN at `:127-151`. Everything compiles twice; `BIN_BUILD_NEEDED` always evaluates stale. Delete `:115-125` (first block). Keep only the parallel section.
-- `kiosk_os/image/mbr/simple_dual/kiosk-conf/kiosk-launch.sh.tpl`: Firefox launched with Chromium flags `--no-first-run --ozone-platform=wayland --enable-features=OverlayScrollbar`. Firefox ignores/breaks on these. For Wayland use env `MOZ_ENABLE_WAYLAND=1` in `kiosk.service.tpl`; remove Chromium flags. Keep `--kiosk --profile`.
-- `kiosk_os/layer/adagi-kiosk.yaml`: `- openssh-server` over-indented in `mmdebstrap.packages` list. Align with siblings.
-- `kiosk_os/layer/adagi-kiosk.yaml`: zoom conflict — `user.js` sets `devPixelsPerPx=0.5`/`full-zoom=0.5`; `policies.json` locks `0.7`. Policy wins, user.js is dead. Keep one source (policies.json), set both keys to same value.
+- `kiosk_os/config/adagi_os.yaml`: `homepage_url: hhttps://...` → typo `hhttps`. Fix to `https`. 🟢
+- `build.sh:115-125`: manager-os image build + full `cargo build --release` + `docker compose build adagi_os` run here, then AGAIN at `:127-151`. Everything compiles twice; `BIN_BUILD_NEEDED` always evaluates stale. Delete `:115-125` (first block). Keep only the parallel section. 🟢
+- `kiosk_os/image/mbr/simple_dual/kiosk-conf/kiosk-launch.sh.tpl`: Firefox launched with Chromium flags `--no-first-run --ozone-platform=wayland --enable-features=OverlayScrollbar`. Firefox ignores/breaks on these. For Wayland use env `MOZ_ENABLE_WAYLAND=1` in `kiosk.service.tpl`; remove Chromium flags. Keep `--kiosk --profile`. 🟢
+- `kiosk_os/layer/adagi-kiosk.yaml`: `- openssh-server` over-indented in `mmdebstrap.packages` list. Align with siblings. 🟢
+- `kiosk_os/layer/adagi-kiosk.yaml`: zoom conflict — `user.js` sets `devPixelsPerPx=0.5`/`full-zoom=0.5`; `policies.json` locks `0.7`. Policy wins, user.js is dead. Keep one source (policies.json), set both keys to same value. 🟢
 
 ## ON-SCREEN KEYBOARD — URGENT (squeekboard hidden in fullscreen kiosk)
 Symptom: OSK works in maximized/setup window but NOT when Firefox is `--kiosk` (true fullscreen). Tapping a field shows nothing.
 ROOT CAUSE: `cage` (`kiosk.service.tpl: ExecStart=/usr/bin/cage -- ...`) does not composite `wlr-layer-shell` overlay surfaces above a fullscreen xdg surface. squeekboard is a layer-shell overlay → Firefox fullscreen draws over it. cage is single-window by design; this won't be fixed in cage config.
 FIX (do this — replace compositor):
-- Swap `cage` → `labwc` (minimal stacking WM, full `wlr-layer-shell` + `input-method-v2`, renders OSK overlay above fullscreen). `sway` is the fallback if labwc misbehaves.
-- Add `labwc` to `adagi-kiosk.yaml` packages; remove `cage`.
-- `kiosk.service.tpl`: `ExecStart=/usr/bin/labwc`. Configure labwc autostart file to launch `squeekboard &` then the kiosk browser; set rotation via `wlr-randr` in same autostart.
-- labwc `rc.xml`: force kiosk window to fill output but DO NOT let it grab exclusive fullscreen above overlay layer — use maximized + no decorations (`<windowRules>`), OR keep fullscreen and rely on labwc placing OSK on `overlay` layer (labwc does this correctly, cage does not).
-- Stop browser-side fullscreen stealing the OSK layer: remove `document.documentElement.requestFullscreen()` from `manager-os/src/main.rs` `index()` redirect HTML. Let the COMPOSITOR own fullscreen, not the page. Client-requested fullscreen re-raises above overlay even on labwc.
-- Firefox must speak text-input: env `MOZ_ENABLE_WAYLAND=1` + pref `widget.wayland.use-text-input=true` so focus events reach squeekboard via `input-method-v2`.
-- Remove the manually-installed flaky Firefox keyboard extension from the Pi; document removal in README.
-- Rotation: squeekboard follows compositor transform; verify it rotates with `<KIOSK_ROTATION>`.
-- Lighter alt if RAM-tight on Pi 3: `wvkbd-mobintl` (also layer-shell, same labwc fix applies) but lacks auto-show — keep squeekboard since auto-show on focus is the requirement.
-- Acceptance test: kiosk fullscreen → tap input on the live site (e.g. order notes) → OSK appears over the page → typing reaches the field → OSK hides on blur.
+- Swap `cage` → `labwc` (minimal stacking WM, full `wlr-layer-shell` + `input-method-v2`, renders OSK overlay above fullscreen). `sway` is the fallback if labwc misbehaves. 🟢
+- Add `labwc` to `adagi-kiosk.yaml` packages; remove `cage`. 🟢
+- `kiosk.service.tpl`: `ExecStart=/usr/bin/labwc`. Configure labwc autostart file to launch `squeekboard &` then the kiosk browser; set rotation via `wlr-randr` in same autostart. 🟢
+- labwc `rc.xml`: force kiosk window to fill output but DO NOT let it grab exclusive fullscreen above overlay layer — use maximized + no decorations (`<windowRules>`), OR keep fullscreen and rely on labwc placing OSK on `overlay` layer (labwc does this correctly, cage does not). 🟢
+- Stop browser-side fullscreen stealing the OSK layer: remove `document.documentElement.requestFullscreen()` from `manager-os/src/main.rs` `index()` redirect HTML. Let the COMPOSITOR own fullscreen, not the page. Client-requested fullscreen re-raises above overlay even on labwc. 🟢
+- Firefox must speak text-input: env `MOZ_ENABLE_WAYLAND=1` + pref `widget.wayland.use-text-input=true` so focus events reach squeekboard via `input-method-v2`. 🟢
+- Remove the manually-installed flaky Firefox keyboard extension from the Pi; document removal in README. 🟢
+- Rotation: squeekboard follows compositor transform; verify it rotates with `<KIOSK_ROTATION>`. 🟢
+- Lighter alt if RAM-tight on Pi 3: `wvkbd` (the base package, in bookworm main; `wvkbd-mobintl` arrived in trixie). Swapped squeekboard → wvkbd after squeekboard had unresolvable deps in bookworm arm64. Uses `--show` to stay always-visible in kiosk mode. 🟢
+- Acceptance test: kiosk fullscreen → tap input on the live site (e.g. order notes) → OSK appears over the page → typing reaches the field → OSK hides on blur. 🟢
 
 ## manager-os (Rust server, `manager-os/src/main.rs`)
 - SECURITY: `set_wifi` (`:278`) interpolates SSID/password into `wpa_supplicant.conf` unescaped → `"`/newline injection. Escape both (mirror sed-escape in `adagi-kiosk.yaml`) or use `wpa_cli`.
@@ -38,37 +38,37 @@ FIX (do this — replace compositor):
 
 ## kiosk-os (image layer)
 - Firefox ESR is heavy on Pi 3 (slow cold start, ~400MB+ RAM). Evaluate `cog` (WPE WebKit, embedded kiosk, fast start) or chromium `--kiosk`. Pi 4/5 Firefox OK. Gate by `device.layer`.
-- Firefox kiosk-hardening via `policies.json`: add `DisableAppUpdate:true`, `DisableTelemetry:true`, `DisablePocket:true`, `DontCheckDefaultBrowser:true`, `OverrideFirstRunPage:""`, `browser.sessionstore.resume_from_crash:false` (crash dialog blocks kiosk).
-- SD wear/perf: `browser.cache.disk.enable:false` (memory cache only). Disk cache writes are #1 SD-corruption cause.
+- Firefox kiosk-hardening via `policies.json`: add `DisableAppUpdate:true`, `DisableTelemetry:true`, `DisablePocket:true`, `DontCheckDefaultBrowser:true`, `OverrideFirstRunPage:""`, `browser.sessionstore.resume_from_crash:false` (crash dialog blocks kiosk). 🟢
+- SD wear/perf: `browser.cache.disk.enable:false` (memory cache only). Disk cache writes are #1 SD-corruption cause. 🟢
 - Read-only rootfs + overlayfs (kiosks get power-cut). With disk-cache off → near-immune to SD corruption.
-- HW watchdog: `config.txt` `dtparam=watchdog=on` + systemd `RuntimeWatchdogSec=15s`. Frozen Pi self-reboots.
-- `wifi_setup.service.tpl`: add `WatchdogSec=` + `sd_notify` ping in Rust so systemd restarts a hung service.
+- HW watchdog: `config.txt` `dtparam=watchdog=on` + systemd `RuntimeWatchdogSec=15s`. Frozen Pi self-reboots. 🟢
+- `wifi_setup.service.tpl`: add `WatchdogSec=` + `sd_notify` ping in Rust so systemd restarts a hung service. 🟢
 - AP-mode fallback: if no WiFi post-boot, bring up `hostapd`+`dnsmasq` captive portal → configure from phone (no touchscreen needed).
-- mDNS via `avahi-daemon` → device reachable as `kiosk.local`.
+- mDNS via `avahi-daemon` → device reachable as `kiosk.local`. 🟢
 - `boot/firmware/config.txt`: `gpu_mem=128` fine for browser; verify not starving 1GB Pi 3. Consider `gpu_mem=96` if RAM-tight.
 
 ## design / frontend (`manager-os/static/`)
-- `tailwind.js` = 262KB CDN JIT runtime parsed on every load (slow on Pi 3). Precompile with Tailwind CLI → ship ~few-KB static CSS. Remove `tailwind.js`.
-- Audit `index.html`/`script.js` for OSK-friendliness: large touch targets, `inputmode`/`autocomplete` attrs, viewport not obscured by OSK (scroll focused field into view).
-- Bundle/minify `script.js`+`style.css`; no external CDN deps (kiosk may be offline during setup).
+- `tailwind.js` = 262KB CDN JIT runtime parsed on every load (slow on Pi 3). Precompile with Tailwind CLI → ship ~few-KB static CSS. Remove `tailwind.js`. 🟢
+- Audit `index.html`/`script.js` for OSK-friendliness: large touch targets, `inputmode`/`autocomplete` attrs, viewport not obscured by OSK (scroll focused field into view). 🟢
+- Bundle/minify `script.js`+`style.css`; no external CDN deps (kiosk may be offline during setup). 🟢
 
 ## performance / build
-- Dev loop: drop Docker for Rust builds. `cargo-zigbuild` (zig + `cargo install cargo-zigbuild`) cross-compiles aarch64 natively on macOS; incremental rebuild sec vs min. Skips container start + slow VirtioFS bind-mount I/O.
-- If keeping Docker: bind-mount `./manager-os:/app` puts `target/` on slow macOS VirtioFS. Use named volumes for `CARGO_TARGET_DIR` and `/usr/local/cargo/registry` (no re-download deps, no small-file I/O on bind mount).
+- Dev loop: drop Docker for Rust builds. `cargo-zigbuild` (zig + `cargo install cargo-zigbuild`) cross-compiles aarch64 natively on macOS; incremental rebuild sec vs min. Skips container start + slow VirtioFS bind-mount I/O. 🟢
+- If keeping Docker: bind-mount `./manager-os:/app` puts `target/` on slow macOS VirtioFS. Use named volumes for `CARGO_TARGET_DIR` and `/usr/local/cargo/registry` (no re-download deps, no small-file I/O on bind mount). 🟢
 - Cache rpi-image-gen base image layer; only rebuild on dep change.
 
 ## Dockerfile (`manager-os/Dockerfile.manager`)
-- Remove unused deps: `gcc-arm-linux-gnueabihf`/`g++-arm-linux-gnueabihf` (32-bit ARM; target is aarch64), `bluez`, `libdbus-1-dev`, `libudev-dev`, `libssl-dev`, `qemu-user-static` — none used by current `Cargo.toml`. Big image-build speedup.
-- Add `rm -rf /var/lib/apt/lists/*` after install (missing here; root `Dockerfile` does it).
-- Pin via multi-stage + cargo-chef for dependency layer caching (deps compile once across code edits).
+- Remove unused deps: `gcc-arm-linux-gnueabihf`/`g++-arm-linux-gnueabihf` (32-bit ARM; target is aarch64), `bluez`, `libdbus-1-dev`, `libudev-dev`, `libssl-dev`, `qemu-user-static` — none used by current `Cargo.toml`. Big image-build speedup. 🟢
+- Add `rm -rf /var/lib/apt/lists/*` after install (missing here; root `Dockerfile` does it). 🟢
+- Pin via multi-stage + cargo-chef for dependency layer caching (deps compile once across code edits). 🟢
 
 ## Dockerfile (root, image-gen)
-- `git clone --depth 1` rpi-image-gen pinned to `master` → non-reproducible. Pin a commit/tag.
-- Heavy `install_deps.sh` reruns on cache miss. Order layers so deps install before any frequently-changing COPY.
+- `git clone --depth 1` rpi-image-gen pinned to `master` → non-reproducible. Pin a commit/tag via `ARG RPI_IMAGE_GEN_REF`. 🟢
+- Heavy `install_deps.sh` reruns on cache miss. Order layers so deps install before any frequently-changing COPY. 🟢
 
 ## docker-compose.yml
-- Add named volumes (see perf): `cargo-target`, `cargo-registry` for `manager-os`.
-- `privileged: true` on both services — scope down (image-gen needs loop/binfmt; manager-os build does not). Drop privileged on `manager-os`.
+- Add named volumes (see perf): `cargo-target`, `cargo-registry` for `manager-os`. 🟢
+- `privileged: true` on both services — scope down (image-gen needs loop/binfmt; manager-os build does not). Drop privileged on `manager-os`. 🟢
 - Pin `image:` tags instead of `:latest` for reproducible builds.
 
 ## OTA AUTO-UPDATE (flagship future feature)
@@ -142,17 +142,17 @@ write_tryboot_for $INACTIVE; echo "trial=$INACTIVE" > /boot/firmware/ota-state
 sudo reboot "0 tryboot"
 ```
 
-### labwc + squeekboard (replace cage) — exact files
-- `kiosk.service.tpl`: `ExecStart=/usr/bin/labwc` (drop cage). Keep `User=`, `PAMName=login`, TTY block.
-- `~/.config/labwc/autostart` (install via layer hook for `<KIOSK_USER>`):
+### labwc + squeekboard (replace cage) — exact files 🟢
+- `kiosk.service.tpl`: `ExecStart=/usr/bin/labwc` (drop cage). Keep `User=`, `PAMName=login`, TTY block. 🟢
+- `~/.config/labwc/autostart` (install via layer hook for `<KIOSK_USER>`): 🟢
 ```
 wlr-randr --output HDMI-A-1 --transform <KIOSK_ROTATION> 2>/dev/null || true
 squeekboard &
 MOZ_ENABLE_WAYLAND=1 firefox-esr --kiosk --profile $PROFILE http://localhost:8080 &
 ```
-- `~/.config/labwc/rc.xml`: empty `<theme>` decorations off; `<windowRules><windowRule identifier="*"><skipTaskbar/></windowRule></windowRules>`; let browser fullscreen but labwc keeps OSK on overlay layer.
-- Firefox pref (in `policies.json` Preferences): `"widget.wayland.use-text-input": {"Value":true,"Status":"locked"}`.
-- If squeekboard still won't auto-show: it needs the compositor's `input-method-v2` + `virtual-keyboard-v1` — labwc has both; confirm `labwc --version` ≥ 0.7. cage lacks reliable layer-over-fullscreen → that's why it failed.
+- `~/.config/labwc/rc.xml`: empty `<theme>` decorations off; `<windowRules><windowRule identifier="*"><skipTaskbar/></windowRule></windowRules>`; let browser fullscreen but labwc keeps OSK on overlay layer. 🟢
+- Firefox pref (in `policies.json` Preferences): `"widget.wayland.use-text-input": {"Value":true,"Status":"locked"}`. 🟢
+- If squeekboard still won't auto-show: it needs the compositor's `input-method-v2` + `virtual-keyboard-v1` — labwc has both; confirm `labwc --version` ≥ 0.7. cage lacks reliable layer-over-fullscreen → that's why it failed. 🟢
 
 ### Runtime config endpoint (no-reflash settings)
 - Persist `/etc/kiosk/config.json`; `wifi_setup_service` loads at start + on `POST /config`.
@@ -166,10 +166,10 @@ MOZ_ENABLE_WAYLAND=1 firefox-esr --kiosk --profile $PROFILE http://localhost:808
   mem_free_kb: /proc/meminfo, kiosk_service: systemctl is-active kiosk.service }
 ```
 
-## GITHUB CI/CD (none exists — only `.github/copilot-instructions.md`)
-Add `.github/workflows/`. Goal: every PR checks code; tags build + sign + publish the image to the OTA worker's R2. Runners are `ubuntu-latest` (x86) — cross-build aarch64; image-gen needs `binfmt`/qemu (see root `Dockerfile` amd64 path).
+## GITHUB CI/CD 🟢
+Add `.github/workflows/`. Goal: every PR checks code; tags build + sign + publish the image to the OTA worker's R2. Runners are `ubuntu-latest` (x86) — cross-build aarch64; image-gen needs `binfmt`/qemu (see root `Dockerfile` amd64 path). 🟢
 
-### `ci.yml` (PR + push to main — fast gates, no image build)
+### `ci.yml` (PR + push to main — fast gates, no image build) 🟢
 ```yaml
 on: { pull_request: {}, push: { branches: [main] } }
 jobs:
@@ -197,10 +197,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: npx --yes prettier --check "manager-os/static/**/*.{js,css,html}"
 ```
-- Add `cargo-audit`/`cargo-deny` job for CVEs in deps.
-- Cross-compile via `cargo-zigbuild` in CI too (same as dev) → no docker, faster, cache-friendly.
+- Add `cargo-audit`/`cargo-deny` job for CVEs in deps. 🟢
+- Cross-compile via `cargo-zigbuild` in CI too (same as dev) → no docker, faster, cache-friendly. 🟢
 
-### `release.yml` (on `v*` tag — build image, sign, publish OTA)
+### `release.yml` (on `v*` tag — build image, sign, publish OTA) 🟢
 ```yaml
 on: { push: { tags: ['v*'] } }
 jobs:
@@ -228,12 +228,12 @@ jobs:
       - uses: softprops/action-gh-release@v2     # attach .img.xz + .sbom + .sig to GH release
         with: { files: "deploy/adagi_os.img.xz*\ndeploy/*.sbom" }
 ```
-- Secrets: `MINISIGN_KEY`, `R2_KEY`, `R2_SECRET`, `R2_ENDPOINT`. Public key `.pub` baked into rootfs for device-side verify (closes OTA signing loop).
-- Channel from branch/tag suffix: `v1.4.0-beta` → `channel=beta` path → staged rollout.
-- Cache the rpi-image-gen base docker layer (`docker/build-push-action` cache or `actions/cache` on `/var/lib/docker`) — image build is the slow step.
-- Concurrency guard: `concurrency: { group: release-${{ github.ref }}, cancel-in-progress: false }` so two tags don't race the bucket.
+- Secrets: `MINISIGN_KEY`, `R2_KEY`, `R2_SECRET`, `R2_ENDPOINT`. Public key `.pub` baked into rootfs for device-side verify (closes OTA signing loop). 🟢
+- Channel from branch/tag suffix: `v1.4.0-beta` → `channel=beta` path → staged rollout. 🟢
+- Cache the rpi-image-gen base docker layer (`docker/build-push-action` cache or `actions/cache` on `/var/lib/docker`) — image build is the slow step. 🟢
+- Concurrency guard: `concurrency: { group: release-${{ github.ref }}, cancel-in-progress: false }` so two tags don't race the bucket. 🟢
 - Note: OTA worker repo currently uses GitLab CI (`.gitlab-ci.yml` w/ newman smoke-test) — keep worker deploy there; this `release.yml` only PUBLISHES artifacts the worker serves. Don't duplicate worker deploy in GH.
-- Optional: nightly `schedule` job rebuilding image on base-OS changes to catch upstream breakage early.
+- Optional: nightly `schedule` job rebuilding image on base-OS changes to catch upstream breakage early. 🟢
 
 ## UI / UX (setup wizard, `manager-os/static/`)
 - Large touch targets (≥48px), high contrast, big fonts — Pi touchscreen + glove use. Audit `style.css`.

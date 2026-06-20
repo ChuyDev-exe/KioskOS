@@ -18,6 +18,6 @@ layer:
   app: adagi-kiosk
 
 kiosk:
-  homepage_url: hhttps://jesusvelez.xyz/
+  homepage_url: https://jesusvelez.xyz/
   rotation: "90"
   ssh_enable: "1"

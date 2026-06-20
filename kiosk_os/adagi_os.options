@@ -1,6 +1,6 @@
 DEVICE_USER1=kiosk
 DEVICE_USER1PASS=kiosk_manager
-kiosk_homepage_url=hhttps://jesusvelez.xyz/
+kiosk_homepage_url=https://jesusvelez.xyz/
 kiosk_rotation=90
 
 # WiFi preconfigurado para primer arranque (opcional)

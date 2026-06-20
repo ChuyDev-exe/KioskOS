@@ -39,7 +39,7 @@ check_internet() {
 
 # Firefox options
 FIREFOX_PROFILE="/home/<KIOSK_USER>/.mozilla/firefox/kiosk.default"
-FIREFOX_OPTS="--noerrdialogs --no-first-run --ozone-platform=wayland --enable-features=OverlayScrollbar --profile $FIREFOX_PROFILE"
+FIREFOX_OPTS="--noerrdialogs --profile $FIREFOX_PROFILE"
 
 # Give networking a short head-start, then choose launch mode.
 for _ in 1 2 3 4 5; do

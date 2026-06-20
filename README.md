@@ -1,266 +1,201 @@
 # KioskOS
-Flujo recomendado para desarrollar rápido sin tener que generar imagen + flashear SD en cada cambio.
 
-## Objetivo
-Tener dos carriles:
+A purpose-built, self-updating **Raspberry Pi kiosk operating system**. Flash it once and the device boots straight into a locked-down, full-screen browser kiosk with an on-screen keyboard, guided Wi‑Fi onboarding, and a built-in management service.
 
-1. **Carril rápido (diario)**: compilar/sincronizar cambios hacia una Raspberry Pi de desarrollo.
-2. **Carril release (final)**: construir imagen completa cuando ya validaste funcionalmente.
+KioskOS produces a single bootable image (`adagi_os.img`) using [rpi-image-gen](https://github.com/raspberrypi/rpi-image-gen), with a fast development workflow that lets you iterate on a live Pi without re-flashing.
 
-### Plan actualizado (resumen)
-
-1. Cambios diarios: `dev-sync-all` sobre Pi de desarrollo.
-2. Cambios de kiosk/sesión: `dev-restart-kiosk` + validación de logs.
-3. Cambios de kernel module: build/instalación/validación directa en Pi.
-4. Release: `./build.sh` solo cuando el comportamiento ya esté validado.
+> Supported hardware: Raspberry Pi **3 / 4 / 5**. Base OS: Debian **Bookworm** (64‑bit).
 
 ---
 
-## Requisitos
-- macOS/Linux con Docker y Docker Compose
-- acceso SSH a una Raspberry Pi de desarrollo
-- en la Pi: `rsync`, `sudo`, `systemd`
-- para kernel modules en la Pi: `raspberrypi-kernel-headers`, `build-essential`, `make`
+## Features
+
+- **Zero-touch kiosk** — boots into a full-screen Firefox ESR session under a Wayland compositor, no desktop, no login prompt.
+- **Guided Wi‑Fi setup** — if there is no connection, the device serves a touch-friendly setup wizard ([manager-os](manager-os/)) so an operator can scan, select, and join a network on-screen.
+- **On-screen keyboard** — native Wayland virtual keyboard for text entry on touchscreens (no browser extension required).
+- **Pre-provisioning** — Wi‑Fi credentials, SSH access, kiosk URL, and screen rotation can all be baked into the image for unattended first boot.
+- **Screen rotation & touch calibration** — `0 / 90 / 180 / 270`, applied to both display and touch input.
+- **Branded boot** — Plymouth splash screen, no console noise.
+- **A/B image layout** — dual-partition scheme (`mbr/simple_dual`) ready for safe over-the-air updates and rollback.
+- **Fast dev loop** — cross-compile and sync changes to a running Pi in seconds instead of re-flashing.
 
 ---
 
-## Estructura relevante
-- Backend: [manager-os/src/main.rs](manager-os/src/main.rs)
-- Frontend estático: [manager-os/static/index.html](manager-os/static/index.html)
-- Build de imagen final: [build.sh](build.sh)
-- Capa de imagen/kiosk: [kiosk_os/layer/adagi-kiosk.yaml](kiosk_os/layer/adagi-kiosk.yaml)
-- Config principal del build: [kiosk_os/config/adagi_os.yaml](kiosk_os/config/adagi_os.yaml)
-- Variables de configuración: [kiosk_os/adagi_os.options](kiosk_os/adagi_os.options)
-- Scripts de desarrollo rápido: [scripts](scripts)
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ Raspberry Pi (KioskOS image)                             │
+│                                                          │
+│  systemd                                                 │
+│   ├── wifi_setup.service   → manager-os (Rust/actix-web) │
+│   │       HTTP :8080  ·  Wi-Fi wizard + control API      │
+│   ├── kiosk.service        → Wayland session             │
+│   │       compositor + Firefox ESR (--kiosk) + OSK       │
+│   └── wpa_supplicant@wlan0 → network                     │
+└──────────────────────────────────────────────────────────┘
+```
+
+- **manager-os** — a small Rust ([actix-web](https://actix.rs/)) service that detects connectivity, serves the setup UI, scans/joins Wi‑Fi, and launches the kiosk. Listens on `:8080`.
+- **kiosk session** — a minimal Wayland compositor running Firefox ESR full-screen, pointed at the configured homepage (or the local setup wizard when offline).
+- **Image layer** — [kiosk_os/](kiosk_os/) contains the rpi-image-gen layer, systemd units, boot config, and device overlays that assemble the OS.
 
 ---
 
-## 1) Configurar una Pi de desarrollo (una sola vez)
-1. Arranca una imagen funcional en la Pi (base estable).
-2. Habilita SSH.
-3. Verifica servicios:
+## Repository layout
 
-```bash
-sudo systemctl status wifi_setup.service
-sudo systemctl status kiosk.service
-```
-
-4. Instala utilidades requeridas:
-
-```bash
-sudo apt update
-sudo apt install -y rsync
-```
-
-5. Si vas a validar kernel modules en caliente:
-
-```bash
-sudo apt install -y raspberrypi-kernel-headers build-essential make
-```
+| Path | Purpose |
+|------|---------|
+| [build.sh](build.sh) | Builds the final `adagi_os.img` (Docker + rpi-image-gen). |
+| [manager-os/](manager-os/) | Rust Wi‑Fi/management service and static web UI. |
+| [manager-os/src/main.rs](manager-os/src/main.rs) | HTTP service entry point. |
+| [manager-os/static/](manager-os/static/) | Setup wizard frontend (HTML/CSS/JS). |
+| [kiosk_os/adagi_os.options](kiosk_os/adagi_os.options) | **Primary configuration file** (source of truth). |
+| [kiosk_os/config/adagi_os.yaml](kiosk_os/config/adagi_os.yaml) | Generated build config (synced from `.options`). |
+| [kiosk_os/layer/adagi-kiosk.yaml](kiosk_os/layer/adagi-kiosk.yaml) | Image layer: packages, systemd units, kiosk setup. |
+| [kiosk_os/device/](kiosk_os/device/) | Per-model boot config (`pi3`, `pi4`, `pi5`). |
+| [scripts/](scripts/) | Fast development workflow (build, sync, logs, doctor). |
+| [Improvements.md](Improvements.md) | Engineering backlog & roadmap. |
 
 ---
 
-## 2) Configurar entorno local de desarrollo rápido
-1. Copia archivo de entorno:
+## Requirements
 
-```bash
-cp scripts/dev.env.example scripts/dev.env
-```
+**Build host (macOS or Linux):**
+- Docker + Docker Compose
+- ~10 GB free disk space
 
-2. Edita `scripts/dev.env` con IP/usuario real de tu Pi.
-
-Variables importantes:
-- `PI_HOST`
-- `PI_USER`
-- `PI_PORT`
-
-3. Valida tu entorno local y la conectividad con la Pi:
-
-```bash
-./scripts/dev-doctor.sh
-```
+**Development Pi (optional, for the fast loop):**
+- A working Pi reachable over SSH
+- `rsync`, `sudo`, `systemd` on the device
 
 ---
 
-## 2.1) Preparar imagen preconfigurada (WiFi + SSH)
+## Quick start
 
-Edita [kiosk_os/adagi_os.options](kiosk_os/adagi_os.options):
+### 1. Configure
+
+Edit [kiosk_os/adagi_os.options](kiosk_os/adagi_os.options) — this is the single source of truth:
 
 ```ini
-DEVICE_USER1=adagio
-DEVICE_USER1PASS=adagio
+DEVICE_USER1=kiosk
+DEVICE_USER1PASS=kiosk_manager
 
-kiosk_homepage_url=https://tu-homepage.com/
-kiosk_rotation=0
+kiosk_homepage_url=https://your-kiosk-app.example.com/
+kiosk_rotation=90
 
-kiosk_wifi_ssid=TU_SSID
-kiosk_wifi_psk=TU_PASSWORD_WIFI
+# Optional: preconfigure Wi-Fi for first boot
+kiosk_wifi_ssid=
+kiosk_wifi_psk=
 
+# SSH on first boot (1=enabled, 0=disabled)
 kiosk_ssh_enable=1
-kiosk_ssh_authorized_key=ssh-ed25519 AAAA... tu_usuario@equipo
+kiosk_ssh_authorized_key=ssh-ed25519 AAAA... you@host
 ```
 
-Notas:
-- `kiosk_ssh_authorized_key` es opcional pero recomendado.
-- Si no defines clave SSH, podrás usar usuario/password.
-- Estos valores se sincronizan automáticamente a [kiosk_os/config/adagi_os.yaml](kiosk_os/config/adagi_os.yaml) cuando ejecutas [build.sh](build.sh).
+| Option | Description | Values |
+|--------|-------------|--------|
+| `kiosk_homepage_url` | URL loaded once online | any URL |
+| `kiosk_rotation` | Screen + touch rotation | `0`, `90`, `180`, `270` |
+| `kiosk_wifi_ssid` / `kiosk_wifi_psk` | Optional pre-set Wi‑Fi | string |
+| `kiosk_ssh_enable` | Enable SSH at first boot | `0`, `1` |
+| `kiosk_ssh_authorized_key` | Public key for the kiosk user | OpenSSH pubkey |
 
----
+Values are automatically synced into [config/adagi_os.yaml](kiosk_os/config/adagi_os.yaml) when you build.
 
-## 3) Flujo rápido para cambios de app (sin reflashear)
-### Opción A: build + deploy en un paso
-
-```bash
-./scripts/dev-sync-all.sh
-```
-
-Esto hace:
-- compila `wifi_setup_service` a `aarch64`
-- sube binario y carpeta static a la Pi
-- instala en rutas reales del sistema (`/usr/local/bin/wifi_setup_service`, `/static`)
-- reinicia `wifi_setup.service`
-
-### Opción B: paso a paso
-
-_(El flujo paso a paso fue eliminado para máxima simplicidad. Usa siempre `dev-sync-all.sh`)_
-
-### Ver logs en vivo
-
-```bash
-./scripts/dev-logs.sh
-```
-
-### Reiniciar kiosk manualmente (si cambias lógica de sesión)
-
-```bash
-./scripts/dev-restart-kiosk.sh
-```
-
----
-
-## 4) Desarrollo local (sin Pi)
-_(El flujo local fue eliminado para máxima simplicidad. Valida siempre en la Pi real)_
-
----
-
-## 5) Validación rápida de kernel modules
-_(El flujo de kernel modules fue eliminado del repo base. Si lo necesitas, agrega scripts específicos en tu fork)_
-
----
-
-## 6) Flujo release (imagen final)
-Cuando ya validaste en Pi de desarrollo:
+### 2. Build the image
 
 ```bash
 ./build.sh
 ```
 
-Salida esperada:
-- `deploy/adagi_os.img`
-- `deploy/adagi_os.sbom` (si aplica)
+Output:
+- `deploy/adagi_os.img` — flashable image
+- `deploy/adagi_os.sbom` — software bill of materials (if enabled)
 
-Luego haces pruebas finales de release en SD flasheada.
+### 3. Flash & boot
 
-### Proceso recomendado para tu caso (arranque y trabajo solo por SSH)
-
-1. Configura [kiosk_os/adagi_os.options](kiosk_os/adagi_os.options) con tu `SSID/PSK` y `kiosk_ssh_enable=1`.
-2. Construye imagen con `./build.sh`.
-3. Flashea la SD e inicia la Raspberry Pi.
-4. Espera 30–90 segundos para que suba red + SSH.
-5. Conéctate por SSH:
+Flash `deploy/adagi_os.img` to an SD card (e.g. with Raspberry Pi Imager or `dd`), insert it, and power on the Pi. After 30–90 seconds the device is online and, if enabled, reachable over SSH:
 
 ```bash
-ssh adagio@<IP_DE_LA_PI>
+ssh kiosk@<pi-ip>
 ```
 
-6. Desde ahí trabajas directamente en la Pi y validas servicios/módulos.
+If no Wi‑Fi is configured, the kiosk shows the on-screen setup wizard to join a network.
 
 ---
 
-## 7) Configuración y rotación
+## Fast development workflow
 
-La configuración del kiosko se controla en [kiosk_os/adagi_os.options](kiosk_os/adagi_os.options).
+Avoid re-flashing on every change. With a development Pi configured in `scripts/dev.env`:
 
-Durante build de imagen, [build.sh](build.sh) sincroniza automáticamente valores a [kiosk_os/config/adagi_os.yaml](kiosk_os/config/adagi_os.yaml), incluyendo:
+```bash
+cp scripts/dev.env.example scripts/dev.env   # set PI_HOST / PI_USER / PI_PORT
+./scripts/dev-doctor.sh                       # validate environment + connectivity
+```
 
-- `kiosk_homepage_url` → `kiosk.homepage_url`
-- `kiosk_rotation` → `kiosk.rotation`
-- `kiosk_wifi_ssid` → `kiosk.wifi_ssid`
-- `kiosk_wifi_psk` → `kiosk.wifi_psk`
-- `kiosk_ssh_enable` → `kiosk.ssh_enable`
-- `kiosk_ssh_authorized_key` → `kiosk.ssh_authorized_key`
+Then iterate:
 
-Recomendación: tomar [kiosk_os/adagi_os.options](kiosk_os/adagi_os.options) como fuente de verdad.
+```bash
+./scripts/dev-sync-all.sh      # cross-compile + deploy service & UI, restart kiosk
+./scripts/dev-logs.sh          # live logs from the device
+```
+
+`dev-sync-all.sh` cross-compiles `wifi_setup_service` for `aarch64`, copies the binary and static assets to the Pi, installs them, and restarts the service — typically in seconds.
+
+| Script | Purpose |
+|--------|---------|
+| [dev-sync-all.sh](scripts/dev-sync-all.sh) | Build + deploy + restart (the everyday command). |
+| [dev-build-rust.sh](scripts/dev-build-rust.sh) | Cross-compile the service only. |
+| [dev-logs.sh](scripts/dev-logs.sh) | Tail device logs. |
+| [dev-doctor.sh](scripts/dev-doctor.sh) | Diagnose local + Pi setup. |
 
 ---
 
-## 7.1) Manual de prueba rápida (Servidor, UI, Kernel Modules)
+## Management API (manager-os)
 
-### A) Servidor (`wifi_setup.service`)
+The service on `:8080` powers the setup wizard and kiosk control.
 
-1. Deploy rápido:
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Setup wizard (offline) or redirect to kiosk homepage (online). |
+| `GET` | `/check_wifi` | Returns `{ connected: bool }`. |
+| `GET` | `/scan_wifi` | Lists nearby SSIDs. |
+| `POST` | `/set_wifi` | Saves credentials and joins a network. |
+| `GET` | `/start_kiosk` | Restarts the kiosk session. |
 
-```bash
-./scripts/dev-sync-all.sh
-```
-
-2. Verifica estado del servicio en la Pi:
-
-```bash
-ssh <usuario>@<ip_pi> 'sudo systemctl --no-pager --full status wifi_setup.service | head -n 30'
-```
-
-3. Pruebas API mínimas:
+Quick check against a device:
 
 ```bash
-curl -s http://<ip_pi>:8080/check_wifi
-curl -s http://<ip_pi>:8080/scan_wifi
+curl -s http://<pi-ip>:8080/check_wifi
+curl -s http://<pi-ip>:8080/scan_wifi
 ```
-
-O usando el smoke test:
-
-_(El smoke test fue eliminado para máxima simplicidad. Usa curl o navegador para validar)_
-
-### B) UI (wizard)
-
-1. Abre `http://<ip_pi>:8080` en navegador.
-2. Valida:
-	- carga de pasos del wizard
-	- botón `Load_network`
-	- selección SSID + envío de contraseña
-	- botón de estado conectado/no conectado
-
-3. Si cambias UI/JS:
-
-_(No es necesario, usa siempre `dev-sync-all.sh`)_
-
-### C) Kernel Modules (sin generar imagen)
-
-_(El flujo de kernel modules fue eliminado para máxima simplicidad)_
 
 ---
 
-## 8) Troubleshooting rápido
+## Configuration & rotation
 
-- `Permission denied` por SSH: valida llave/usuario en `scripts/dev.env`.
-- `wifi_setup.service` no inicia: usar `./scripts/dev-logs.sh`.
-- `módulo no compila`: revisar headers con `ls /lib/modules/$(uname -r)/build` en la Pi.
-- `módulo no carga`: revisar `dmesg` y dependencias del módulo.
+[kiosk_os/adagi_os.options](kiosk_os/adagi_os.options) is the authoritative configuration. During `./build.sh` its values are synced into [config/adagi_os.yaml](kiosk_os/config/adagi_os.yaml), including the kiosk URL, rotation, optional Wi‑Fi, and SSH settings. Treat `.options` as the file you edit; the YAML is generated.
 
 ---
 
-## 9) Comandos de referencia
+## Troubleshooting
 
-```bash
-# Build rápido + deploy a Pi
-./scripts/dev-sync-all.sh
+| Symptom | Check |
+|---------|-------|
+| SSH `Permission denied` | Verify user/key in `scripts/dev.env`. |
+| Service won't start | `./scripts/dev-logs.sh` or `systemctl status wifi_setup.service`. |
+| No kiosk on screen | `systemctl status kiosk.service`; confirm the display is detected. |
+| Wi‑Fi won't join | Confirm country/credentials; inspect `journalctl -u wpa_supplicant@wlan0`. |
 
-# Logs en vivo
-./scripts/dev-logs.sh
+---
 
-# Reiniciar kiosk
-./scripts/dev-restart-kiosk.sh
+## Roadmap
 
-# Build de imagen final
-./build.sh
-```
+Active engineering backlog — including OTA auto-updates, CI/CD, security hardening, and UI/UX work — is tracked in [Improvements.md](Improvements.md).
+
+---
+
+## License
+
+See repository for license details.

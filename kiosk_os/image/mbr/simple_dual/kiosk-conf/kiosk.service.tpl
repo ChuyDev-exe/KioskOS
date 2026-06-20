@@ -11,8 +11,9 @@ TTYVHangup=yes
 TTYVTDisallocate=yes
 Environment="HOME=/home/<KIOSK_USER>"
 Environment="XDG_RUNTIME_DIR=/run/user/%U"
+Environment="MOZ_ENABLE_WAYLAND=1"
 Restart=always
-ExecStart=/usr/bin/cage -- <KIOSK_APP>
+ExecStart=/usr/bin/labwc
 StandardError=journal
 
 [Install]

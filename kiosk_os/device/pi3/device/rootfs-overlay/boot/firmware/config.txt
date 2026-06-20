@@ -40,6 +40,9 @@ arm_boost=1
 disable_splash=1
 boot_delay=0
 
+# HW watchdog — frozen Pi self-reboots after 15s
+dtparam=watchdog=on
+
 # ---------------------------
 # GPU memory para UI
 # ---------------------------

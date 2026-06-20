@@ -17,6 +17,24 @@ escape_sed_replacement() {
   printf '%s' "$1" | sed -e 's/[&|]/\\&/g'
 }
 
+set_or_delete_quoted_yaml_key() {
+  local key="$1"
+  local value="$2"
+  local escaped
+
+  if [ -n "$value" ]; then
+    escaped=$(escape_sed_replacement "$value")
+    if grep -q -E "^[[:space:]]*${key}:" "$CONFIG_FILE"; then
+      sed -i.bak -E "s|^([[:space:]]*${key}:).*|\\1 \"${escaped}\"|" "$CONFIG_FILE"
+    else
+      sed -i.bak -E "/^[[:space:]]*rotation:/a\\
+  ${key}: \"${escaped}\"" "$CONFIG_FILE"
+    fi
+  else
+    sed -i.bak -E "/^[[:space:]]*${key}:/d" "$CONFIG_FILE"
+  fi
+}
+
 validate_option_values() {
   local rotation="$1"
   local ssh_enable="$2"
@@ -44,8 +62,7 @@ sync_config_from_options() {
   fi
 
   local homepage_url rotation wifi_ssid wifi_psk ssh_enable ssh_authorized_key
-  local homepage_url_escaped rotation_escaped wifi_ssid_escaped wifi_psk_escaped
-  local ssh_enable_escaped ssh_authorized_key_escaped
+  local homepage_url_escaped rotation_escaped ssh_enable_escaped
   homepage_url=$(awk -F= '/^kiosk_homepage_url=/{print substr($0, index($0, "=") + 1)}' "$OPTIONS_FILE" | tail -n 1)
   rotation=$(awk -F= '/^kiosk_rotation=/{print substr($0, index($0, "=") + 1)}' "$OPTIONS_FILE" | tail -n 1)
   wifi_ssid=$(awk -F= '/^kiosk_wifi_ssid=/{print substr($0, index($0, "=") + 1)}' "$OPTIONS_FILE" | tail -n 1)
@@ -61,17 +78,13 @@ sync_config_from_options() {
   rotation_escaped=$(escape_sed_replacement "$rotation")
   sed -i.bak -E "s|^([[:space:]]*rotation:).*|\1 \"${rotation_escaped}\"|" "$CONFIG_FILE"
 
-  wifi_ssid_escaped=$(escape_sed_replacement "$wifi_ssid")
-  sed -i.bak -E "s|^([[:space:]]*wifi_ssid:).*|\1 \"${wifi_ssid_escaped}\"|" "$CONFIG_FILE"
-
-  wifi_psk_escaped=$(escape_sed_replacement "$wifi_psk")
-  sed -i.bak -E "s|^([[:space:]]*wifi_psk:).*|\1 \"${wifi_psk_escaped}\"|" "$CONFIG_FILE"
+  set_or_delete_quoted_yaml_key "wifi_ssid" "$wifi_ssid"
+  set_or_delete_quoted_yaml_key "wifi_psk" "$wifi_psk"
 
   ssh_enable_escaped=$(escape_sed_replacement "$ssh_enable")
   sed -i.bak -E "s|^([[:space:]]*ssh_enable:).*|\1 \"${ssh_enable_escaped}\"|" "$CONFIG_FILE"
 
-  ssh_authorized_key_escaped=$(escape_sed_replacement "$ssh_authorized_key")
-  sed -i.bak -E "s|^([[:space:]]*ssh_authorized_key:).*|\1 \"${ssh_authorized_key_escaped}\"|" "$CONFIG_FILE"
+  set_or_delete_quoted_yaml_key "ssh_authorized_key" "$ssh_authorized_key"
 
   rm -f "$CONFIG_FILE.bak"
 }
@@ -108,11 +121,35 @@ docker compose run --name ${BINARY_BUILD_SVC}-${BUILD_ID} -d ${BINARY_BUILD_SVC}
   && rm -rf ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static \
   && docker cp ${CID}:/app/static ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static
 
-# Build a customer raspberry pi image
-# with the wifi setup service included
-#
 echo "🔨 Building Docker image with rpi-image-gen to create ${RPI_BUILD_SVC}..."
-docker compose build ${RPI_BUILD_SVC}
+docker compose build --pull never ${RPI_BUILD_SVC}
+
+# Build binario Rust y base rpi-image-gen en paralelo
+BIN_BUILD_NEEDED=0
+if [ ! -f ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME} ] || \
+     [ $(find ./manager-os/src -type f -newer ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME} | wc -l) -gt 0 ]; then
+  BIN_BUILD_NEEDED=1
+fi
+
+echo "🔨 Compilando binario Rust y base rpi-image-gen en paralelo..."
+if [ "$BIN_BUILD_NEEDED" = "1" ]; then
+  (
+    docker compose build --pull never ${BINARY_BUILD_SVC}
+    docker compose run --rm ${BINARY_BUILD_SVC} bash -c "cargo build --release --target aarch64-unknown-linux-gnu"
+    CID=$(docker ps -a --filter "name=${BINARY_BUILD_SVC}" --format "{{.ID}}" | head -n 1)
+    docker cp ${CID}:/app/target/aarch64-unknown-linux-gnu/release/${BINARY_NAME} ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME}
+    rm -rf ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static
+    docker cp ${CID}:/app/static ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static
+    docker rm -f ${CID} >/dev/null 2>&1 || true
+  ) &
+else
+  echo "✅ Binario Rust ya está actualizado. Skipping build."
+fi
+(
+  docker compose build --pull never ${RPI_BUILD_SVC}
+) &
+wait
+echo "✅ Builds paralelos terminados."
 
 echo "🚀 Running image generation in container..."
 docker compose run --name ${RPI_BUILD_SVC}-${BUILD_ID} -d ${RPI_BUILD_SVC} \

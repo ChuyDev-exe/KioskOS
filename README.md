@@ -122,10 +122,7 @@ Esto hace:
 
 ### Opción B: paso a paso
 
-```bash
-./scripts/dev-build-service.sh
-./scripts/dev-sync-app.sh
-```
+_(El flujo paso a paso fue eliminado para máxima simplicidad. Usa siempre `dev-sync-all.sh`)_
 
 ### Ver logs en vivo
 
@@ -142,49 +139,12 @@ Esto hace:
 ---
 
 ## 4) Desarrollo local (sin Pi)
-Para iterar rápido UI/API:
-
-```bash
-./scripts/dev-run-local.sh
-```
-
-Servidor en `http://localhost:8080`.
-
-> Nota: endpoints que dependen de hardware/systemd/WiFi real deben validarse en Pi.
+_(El flujo local fue eliminado para máxima simplicidad. Valida siempre en la Pi real)_
 
 ---
 
-## 5) Validación rápida de kernel modules (sin imagen nueva)
-Este flujo evita: compilar módulo + compilar imagen + flashear SD en cada intento.
-
-### Construir e instalar módulo directo en la Pi
-
-```bash
-./scripts/dev-kmod-build-on-pi.sh <ruta_modulo> <nombre_modulo>
-```
-
-Ejemplo:
-
-```bash
-./scripts/dev-kmod-build-on-pi.sh ./driver/my_module my_module
-```
-
-Qué hace:
-- sube código fuente del módulo a la Pi
-- compila contra el kernel corriendo (`/lib/modules/$(uname -r)/build`)
-- instala `.ko` en `/lib/modules/$(uname -r)/extra`
-- ejecuta `depmod` y `modprobe`
-
-### Validar estado del módulo en hardware
-
-```bash
-./scripts/dev-kmod-validate.sh <nombre_modulo>
-```
-
-Incluye:
-- `modinfo`
-- `lsmod`
-- últimos logs de kernel (`dmesg`)
+## 5) Validación rápida de kernel modules
+_(El flujo de kernel modules fue eliminado del repo base. Si lo necesitas, agrega scripts específicos en tu fork)_
 
 ---
 
@@ -259,13 +219,7 @@ curl -s http://<ip_pi>:8080/scan_wifi
 
 O usando el smoke test:
 
-```bash
-./scripts/dev-smoke-http.sh http://<ip_pi>:8080
-```
-
-Esperado:
-- Respuesta JSON válida
-- Sin errores críticos en logs (`./scripts/dev-logs.sh`)
+_(El smoke test fue eliminado para máxima simplicidad. Usa curl o navegador para validar)_
 
 ### B) UI (wizard)
 
@@ -278,28 +232,11 @@ Esperado:
 
 3. Si cambias UI/JS:
 
-```bash
-./scripts/dev-sync-app.sh
-```
+_(No es necesario, usa siempre `dev-sync-all.sh`)_
 
 ### C) Kernel Modules (sin generar imagen)
 
-1. Build + instalación en Pi:
-
-```bash
-./scripts/dev-kmod-build-on-pi.sh <ruta_modulo> <nombre_modulo>
-```
-
-2. Validación en hardware:
-
-```bash
-./scripts/dev-kmod-validate.sh <nombre_modulo>
-```
-
-3. Criterio mínimo de éxito:
-- `modinfo` resuelve el módulo
-- `lsmod` muestra módulo cargado (si corresponde)
-- `dmesg` sin errores de inicialización del módulo
+_(El flujo de kernel modules fue eliminado para máxima simplicidad)_
 
 ---
 
@@ -315,17 +252,14 @@ Esperado:
 ## 9) Comandos de referencia
 
 ```bash
-# Validar entorno de trabajo
-./scripts/dev-doctor.sh
-
 # Build rápido + deploy a Pi
 ./scripts/dev-sync-all.sh
 
-# Smoke test HTTP
-./scripts/dev-smoke-http.sh http://<ip_pi>:8080
-
 # Logs en vivo
 ./scripts/dev-logs.sh
+
+# Reiniciar kiosk
+./scripts/dev-restart-kiosk.sh
 
 # Build de imagen final
 ./build.sh

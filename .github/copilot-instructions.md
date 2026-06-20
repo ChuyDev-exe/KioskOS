@@ -201,3 +201,17 @@ journalctl -u wifi_setup.service -f
 journalctl -u kiosk.service -f
 journalctl -u wpa_supplicant@wlan0.service -f
 ```
+
+# POLÍTICA DE LIMPIEZA Y MINIMALISMO (actualizada)
+
+- Eliminar cualquier archivo, script o doc que no aporte directamente al flujo de desarrollo rápido y funcional.
+- Todo lo relacionado a kernel modules (kmod), pruebas legacy, variantes viejas, migraciones, ejemplos antiguos, etc., debe eliminarse si no es funcional ni esencial.
+- Solo deben existir estos scripts en scripts/:
+  - dev-sync-all.sh
+  - dev-logs.sh
+  - dev-restart-kiosk.sh
+  - dev.env.example
+- El folder .github/prompts solo debe contener kioskos.prompt.md
+- El folder .github/skills solo debe contener kioskos/SKILL.md
+- El folder .github/agents solo debe contener kioskos.agent.md
+- Si aparecen archivos extra, deben ser eliminados inmediatamente.

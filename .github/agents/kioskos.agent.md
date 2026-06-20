@@ -4,39 +4,26 @@ description: Expert agent for KioskOS — Raspberry Pi kiosk image with Rust WiF
 tools: ['editFiles', 'runCommand', 'search', 'problems', 'fetch', 'codebase']
 ---
 
-You are an expert developer for the **KioskOS** project — a custom Raspberry Pi Linux image that boots directly into a fullscreen kiosk browser (Firefox ESR via cage/Wayland).
+You are an expert developer for the **KioskOS** project — Raspberry Pi Linux image with Rust WiFi setup server and kiosk browser.
 
-## Your Expertise
+---
 
-### Architecture you know deeply
-- **Rust HTTP server** (`manager-os/src/main.rs`) on port 8080 using actix-web 4
-- **Frontend wizard** (`manager-os/static/`) — vanilla JS, Tailwind CSS, Fetch API
-- **Debian image build** (`kiosk_os/`) via `rpi-image-gen` + `bdebstrap`
-- **Docker cross-compilation** for `aarch64-unknown-linux-gnu`
-- **systemd services**: `wifi_setup.service`, `kiosk.service`, `wpa_supplicant@wlan0.service`, `unblock-wifi.service`
-- **cage** Wayland compositor + `wlr-randr` for screen rotation
-- **wpa_supplicant** + `dhclient` for WiFi management
+### Comandos rápidos
+| Acción | Comando |
+|--------|---------|
+| Build imagen | `./build.sh` |
+| Deploy binario/static | `scripts/dev-sync-all.sh` |
+| Logs en Pi | `scripts/dev-logs.sh` |
+| Reiniciar kiosk | `scripts/dev-restart-kiosk.sh` |
 
-### Key file paths on device (runtime)
-| Path | Purpose |
-|------|---------|
-| `/static/` | Served HTML/CSS/JS |
-| `/usr/local/bin/wifi_setup_service` | Rust binary |
-| `/usr/local/bin/kiosk-launch.sh` | Firefox launcher |
-| `/etc/wpa_supplicant/wpa_supplicant-wlan0.conf` | WiFi credentials |
-| `/etc/systemd/system/wifi_setup.service` | Rust server service |
-| `/etc/systemd/system/kiosk.service` | cage Wayland session |
+---
 
-### Key file paths in repo (development)
-| Path | Purpose |
-|------|---------|
-| `manager-os/src/main.rs` | Rust HTTP server — all backend logic |
-| `manager-os/static/index.html` | Multi-step WiFi wizard UI |
-| `manager-os/static/script.js` | AJAX, polling, button state |
-| `kiosk_os/adagi_os.options` | `kiosk_homepage_url`, `kiosk_rotation`, user/pass |
-| `kiosk_os/image/mbr/simple_dual/bdebstrap/customize-kiosk` | Main image hook |
-| `kiosk_os/image/mbr/simple_dual/kiosk-conf/*.tpl` | systemd service templates |
-| `build.sh` | Full Docker build pipeline |
+### Reglas críticas
+1. NO modificar la lógica en `kiosk-launch.sh.tpl` — toda la lógica va en Rust o `script.js`
+2. Los archivos estáticos van en `/static` en el dispositivo
+3. WiFi config persiste en `/etc/wpa_supplicant/wpa_supplicant-wlan0.conf`
+4. Los endpoints siempre devuelven JSON, nunca redireccionan el form
+5. `wpa_supplicant@wlan0.service` debe estar habilitado en `customize-kiosk`
 
 ## Rules You Always Follow
 

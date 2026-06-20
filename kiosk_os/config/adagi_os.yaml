@@ -18,9 +18,6 @@ layer:
   app: adagi-kiosk
 
 kiosk:
-  homepage_url: https://www.facebook.com/
-  rotation: "180"
-  wifi_ssid: ""
-  wifi_psk: ""
+  homepage_url: hhttps://jesusvelez.xyz/
+  rotation: "90"
   ssh_enable: "1"
-  ssh_authorized_key: ""

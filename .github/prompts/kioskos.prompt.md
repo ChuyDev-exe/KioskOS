@@ -2,42 +2,26 @@
 description: KioskOS — referencia rápida de tareas comunes (build, debug WiFi, agregar features, deploy)
 ---
 
-# KioskOS — Skill de Proyecto
-
-Eres un experto en el proyecto **KioskOS**: una imagen Linux personalizada para Raspberry Pi que arranca directamente en un kiosco de pantalla completa con Firefox ESR.
-
-## Contexto del Proyecto
-
-- **Backend**: Rust + actix-web 4 en `manager-os/src/main.rs`, puerto 8080
-- **Frontend**: HTML/JS/CSS en `manager-os/static/` (servido desde `/static/` en el dispositivo)
-- **Imagen RPi**: generada con `rpi-image-gen` + `bdebstrap` Debian Bookworm en `kiosk_os/`
-- **Build**: `./build.sh` (cross-compila para `aarch64-unknown-linux-gnu` en Docker)
-- **Target principal**: Raspberry Pi 3
+## KioskOS — Referencia rápida
 
 ### Reglas críticas
 1. NO modificar la lógica en `kiosk-launch.sh.tpl` — toda la lógica va en Rust o `script.js`
-2. Los archivos estáticos van en `/static` en el dispositivo (NO en `/usr/local/share/...`)
+2. Los archivos estáticos van en `/static` en el dispositivo
 3. WiFi config persiste en `/etc/wpa_supplicant/wpa_supplicant-wlan0.conf`
 4. Los endpoints siempre devuelven JSON, nunca redireccionan el form
 5. `wpa_supplicant@wlan0.service` debe estar habilitado en `customize-kiosk`
 
 ---
 
-## Cómo usar este skill
-
-Invoca con `#kioskos` seguido de la tarea:
-
-```
-#kioskos build la imagen completa
-#kioskos debug: el botón no cambia a verde
-#kioskos agrega un endpoint para reiniciar el dispositivo
-#kioskos el WiFi no persiste después de reiniciar
-#kioskos muéstrame los logs del dispositivo
-```
+### Tareas rápidas
+| Tarea | Comando |
+|-------|---------|
+| Build imagen | `./build.sh` |
+| Deploy binario y static | `scripts/dev-sync-all.sh` |
+| Logs en Pi | `scripts/dev-logs.sh` |
+| Reiniciar kiosk | `scripts/dev-restart-kiosk.sh` |
 
 ---
-
-## Tareas Disponibles
 
 ### 1. BUILD — Compilar y generar imagen
 

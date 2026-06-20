@@ -1,7 +1,7 @@
-DEVICE_USER1=adagio
-DEVICE_USER1PASS=adagio
-kiosk_homepage_url=https://www.facebook.com/
-kiosk_rotation=180
+DEVICE_USER1=kiosk
+DEVICE_USER1PASS=kiosk_manager
+kiosk_homepage_url=hhttps://jesusvelez.xyz/
+kiosk_rotation=90
 
 # WiFi preconfigurado para primer arranque (opcional)
 kiosk_wifi_ssid=

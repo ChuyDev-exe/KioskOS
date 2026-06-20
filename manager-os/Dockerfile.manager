@@ -1,21 +1,32 @@
-# Use an official Rust image as the base
-FROM rust:1.84.1-bookworm
-
-# Install dependencies required for cross-compiling
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libglib2.0-dev \
-    gcc-arm-linux-gnueabihf \
-    g++-arm-linux-gnueabihf \
-    qemu-user-static \
-    libssl-dev \
-    libudev-dev \
-    git \
-    bluez \
-    libdbus-1-dev
-
-# Set up the cross-compilation environment for ARMv8 (Raspberry Pi)
+# Multi-stage build with cargo-chef for dep caching.
+# Changing Cargo.toml → only deps rebuild; changing src/ → only final compile.
+FROM rust:1.84.1-bookworm AS base
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    pkg-config libglib2.0-dev libssl-dev libudev-dev git \
+    && rm -rf /var/lib/apt/lists/*
 RUN rustup target add aarch64-unknown-linux-gnu
 
-# Set the working directory
+FROM base AS chef
+RUN cargo install cargo-chef
+
+FROM chef AS planner
 WORKDIR /app
+COPY Cargo.toml Cargo.lock* ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS cacher
+WORKDIR /app
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --target aarch64-unknown-linux-gnu --recipe-path recipe.json
+
+FROM chef AS builder
+WORKDIR /app
+COPY --from=cacher /app/target /app/target
+COPY --from=cacher /usr/local/cargo /usr/local/cargo
+COPY Cargo.toml Cargo.lock* ./
+COPY src ./src
+RUN cargo build --release --target aarch64-unknown-linux-gnu
+
+FROM scratch
+COPY --from=builder /app/target/aarch64-unknown-linux-gnu/release/wifi_setup_service /wifi_setup_service

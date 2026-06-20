@@ -1,7 +1,7 @@
 # METABEGIN
 # X-Env-Layer-Name: adagi-kiosk
 # X-Env-Layer-Category: app
-# X-Env-Layer-Desc: KioskOS – WiFi setup wizard (Rust/actix-web) and Firefox ESR kiosk launcher via cage/Wayland
+# X-Env-Layer-Desc: KioskOS – WiFi setup wizard (Rust/actix-web) and Firefox ESR kiosk launcher via labwc/Wayland
 # X-Env-Layer-Version: 1.0.0
 # X-Env-Layer-Requires: rpi-user-credentials,adagi-wifi
 # X-Env-VarPrefix: kiosk
@@ -13,17 +13,40 @@
 # X-Env-Var-rotation: normal
 # X-Env-Var-rotation-Desc: Screen rotation angle applied via wlr-randr (normal, 90, 180, 270)
 # X-Env-Var-rotation-Required: n
-# X-Env-Var-rotation-Valid: keywords:normal,90,180,270
+# X-Env-Var-rotation-Valid: keywords:0,normal,90,180,270
 # X-Env-Var-rotation-Set: y
+# X-Env-Var-wifi_ssid: 
+# X-Env-Var-wifi_ssid-Desc: Optional preconfigured WiFi SSID for first boot
+# X-Env-Var-wifi_ssid-Required: n
+# X-Env-Var-wifi_ssid-Valid: string
+# X-Env-Var-wifi_ssid-Set: n
+# X-Env-Var-wifi_psk: 
+# X-Env-Var-wifi_psk-Desc: Optional WiFi password (WPA/WPA2) for preconfigured SSID
+# X-Env-Var-wifi_psk-Required: n
+# X-Env-Var-wifi_psk-Valid: string
+# X-Env-Var-wifi_psk-Set: n
+# X-Env-Var-ssh_enable: 1
+# X-Env-Var-ssh_enable-Desc: Enable SSH service on first boot (1 or 0)
+# X-Env-Var-ssh_enable-Required: n
+# X-Env-Var-ssh_enable-Valid: keywords:0,1,true,false
+# X-Env-Var-ssh_enable-Set: y
+# X-Env-Var-ssh_authorized_key: 
+# X-Env-Var-ssh_authorized_key-Desc: Optional public key added to ~/.ssh/authorized_keys for the kiosk user
+# X-Env-Var-ssh_authorized_key-Required: n
+# X-Env-Var-ssh_authorized_key-Valid: string
+# X-Env-Var-ssh_authorized_key-Set: n
 # METAEND
 ---
 mmdebstrap:
   packages:
     - plymouth
     - plymouth-themes
-    - cage
+    - labwc
+    - wvkbd
     - wlr-randr
     - firefox-esr
+    - openssh-server
+    - avahi-daemon
   install-recommends: false
   customize-hooks:
     - |-
@@ -34,6 +57,11 @@ mmdebstrap:
       PLYMOUTH_SRC="$SRCROOT/image/mbr/simple_dual/plymouth/themes/KioskOs"
 
       ROTATION="${IGconf_kiosk_rotation:-normal}"
+      WIFI_SSID="${IGconf_kiosk_wifi_ssid:-}"
+      WIFI_PSK="${IGconf_kiosk_wifi_psk:-}"
+      SSH_ENABLE="${IGconf_kiosk_ssh_enable:-1}"
+      SSH_AUTHORIZED_KEY="${IGconf_kiosk_ssh_authorized_key:-}"
+
       # Map numeric 0 to "normal" for wlr-randr compatibility
       if [ "$ROTATION" = "0" ]; then
           ROTATION="normal"
@@ -62,6 +90,36 @@ mmdebstrap:
           "$OVERLAY/etc/systemd/system/wpa_supplicant@wlan0.service" \
           "$1/etc/systemd/system/wpa_supplicant@wlan0.service"
 
+      # ── Optional preconfigured WiFi for first boot ────────────────────────
+      if [ -n "$WIFI_SSID" ]; then
+          WIFI_SSID_ESC=$(printf '%s' "$WIFI_SSID" | sed 's/[\\"]/\\\\&/g')
+          if [ -n "$WIFI_PSK" ]; then
+              WIFI_PSK_ESC=$(printf '%s' "$WIFI_PSK" | sed 's/[\\"]/\\\\&/g')
+              printf '%s\n' \
+                  'ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev' \
+                  'update_config=1' \
+                  'country=US' \
+                  'network={' \
+                  '    ssid="'"${WIFI_SSID_ESC}"'"' \
+                  '    psk="'"${WIFI_PSK_ESC}"'"' \
+                  '    scan_ssid=1' \
+                  '}' \
+                  > "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+          else
+              printf '%s\n' \
+                  'ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev' \
+                  'update_config=1' \
+                  'country=US' \
+                  'network={' \
+                  '    ssid="'"${WIFI_SSID_ESC}"'"' \
+                  '    key_mgmt=NONE' \
+                  '    scan_ssid=1' \
+                  '}' \
+                  > "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+          fi
+          chmod 600 "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+      fi
+
       # ── wifi_setup.service (from template) ────────────────────────────────
       sed "s|<KIOSK_HOMEPAGE_URL>|${IGconf_kiosk_homepage_url}|g" \
           "$CONFD/wifi_setup.service.tpl" \
@@ -76,13 +134,22 @@ mmdebstrap:
       chmod +x "$1/usr/local/bin/kiosk-launch.sh"
 
       # ── kiosk.service (from template) ─────────────────────────────────────
-      APP="/usr/local/bin/kiosk-launch.sh"
       sed \
           -e "s|<KIOSK_USER>|${IGconf_device_user1}|g" \
           -e "s|<KIOSK_RUNDIR>|/home/${IGconf_device_user1}|g" \
-          -e "s|<KIOSK_APP>|${APP}|g" \
           "$CONFD/kiosk.service.tpl" \
           > "$1/etc/systemd/system/kiosk.service"
+
+      # ── labwc config ─────────────────────────────────────────────────────
+      LABWC_CFG="$1/home/${IGconf_device_user1}/.config/labwc"
+      mkdir -p "$LABWC_CFG"
+      sed \
+          -e "s|<KIOSK_ROTATION>|${ROTATION}|g" \
+          "$CONFD/labwc-autostart.sh.tpl" \
+          > "$LABWC_CFG/autostart"
+      chmod +x "$LABWC_CFG/autostart"
+      install -m 644 "$CONFD/labwc-rc.xml.tpl" "$LABWC_CFG/rc.xml"
+      chroot "$1" chown -R ${IGconf_device_user1}:${IGconf_device_user1} "/home/${IGconf_device_user1}/.config"
 
       # ── wifi_setup_service binary (aarch64, cross-compiled) ───────────────
       install -m 755 \
@@ -93,19 +160,24 @@ mmdebstrap:
       FIREFOX_PROFILE_DIR="$1/home/${IGconf_device_user1}/.mozilla/firefox/kiosk.default"
       mkdir -p "$FIREFOX_PROFILE_DIR"
       printf '%s\n' \
-          'pref("layout.css.devPixelsPerPx", "0.5");' \
-          'pref("browser.content.full-zoom", 0.5);' \
+          'pref("layout.css.devPixelsPerPx", "0.7");' \
+          'pref("browser.content.full-zoom", 0.7);' \
           'pref("browser.zoom.siteSpecific", false);' \
           'pref("zoom.minPercent", 30);' \
           'pref("zoom.maxPercent", 300);' \
           'pref("toolkit.zoomManager.zoomValues", ".3,.5,.67,.7,.8,.9,1,1.1,1.2,1.33,1.5,1.7,2,2.4,3");' \
           > "$FIREFOX_PROFILE_DIR/user.js"
 
-      # Enforce zoom globally in ALL tabs/windows via managed Firefox policies.
+      # Enforce Firefox policies globally (zoom, OSK, hardening, disk cache).
       mkdir -p "$1/usr/lib/firefox-esr/distribution"
       printf '%s\n' \
           '{' \
           '  "policies": {' \
+          '    "DisableAppUpdate": true,' \
+          '    "DisableTelemetry": true,' \
+          '    "DisablePocket": true,' \
+          '    "DontCheckDefaultBrowser": true,' \
+          '    "OverrideFirstRunPage": "",' \
           '    "Preferences": {' \
           '      "layout.css.devPixelsPerPx": {' \
           '        "Value": "0.7",' \
@@ -118,12 +190,34 @@ mmdebstrap:
           '      "browser.zoom.siteSpecific": {' \
           '        "Value": false,' \
           '        "Status": "locked"' \
+          '      },' \
+          '      "widget.wayland.use-text-input": {' \
+          '        "Value": true,' \
+          '        "Status": "locked"' \
+          '      },' \
+          '      "browser.sessionstore.resume_from_crash": {' \
+          '        "Value": false,' \
+          '        "Status": "locked"' \
+          '      },' \
+          '      "browser.cache.disk.enable": {' \
+          '        "Value": false,' \
+          '        "Status": "locked"' \
           '      }' \
           '    }' \
           '  }' \
           '}' \
           > "$1/usr/lib/firefox-esr/distribution/policies.json"
       chroot "$1" chown -R ${IGconf_device_user1}:${IGconf_device_user1} "/home/${IGconf_device_user1}/.mozilla"
+
+      # ── Optional SSH key for kiosk user ───────────────────────────────────
+      if [ -n "$SSH_AUTHORIZED_KEY" ]; then
+          SSH_DIR="$1/home/${IGconf_device_user1}/.ssh"
+          mkdir -p "$SSH_DIR"
+          printf '%s\n' "$SSH_AUTHORIZED_KEY" > "$SSH_DIR/authorized_keys"
+          chmod 700 "$SSH_DIR"
+          chmod 600 "$SSH_DIR/authorized_keys"
+          chroot "$1" chown -R ${IGconf_device_user1}:${IGconf_device_user1} "/home/${IGconf_device_user1}/.ssh"
+      fi
 
       # ── Static frontend files ──────────────────────────────────────────────
       cp -r "$OVERLAY/static/." "$1/static/"
@@ -148,11 +242,22 @@ mmdebstrap:
       chmod 644 "$1/usr/share/plymouth/themes/KioskOs/"*
       chroot "$1" plymouth-set-default-theme KioskOs
 
+      # ── HW watchdog (systemd) ─────────────────────────────────────────────
+      mkdir -p "$1/etc/systemd/system.conf.d"
+      printf '%s\n' \
+          '[Manager]' \
+          'RuntimeWatchdogSec=15s' \
+          > "$1/etc/systemd/system.conf.d/watchdog.conf"
+
       # ── Enable systemd units ───────────────────────────────────────────────
       systemctl --root="$1" enable wifi_setup.service
       systemctl --root="$1" enable wpa_supplicant@wlan0.service
       systemctl --root="$1" enable kiosk.service
       systemctl --root="$1" enable unblock-wifi.service
+      systemctl --root="$1" enable avahi-daemon.service
+      if [ "$SSH_ENABLE" = "1" ] || [ "$SSH_ENABLE" = "true" ]; then
+          systemctl --root="$1" enable ssh.service || systemctl --root="$1" enable ssh
+      fi
 
       # ── Mask getty on tty1 (prevent login prompt) ─────────────────────────
       systemctl --root="$1" mask getty@tty1.service

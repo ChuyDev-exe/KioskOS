@@ -3,41 +3,36 @@ name: kioskos
 description: KioskOS development skill — use for building the Raspberry Pi kiosk image, debugging WiFi connectivity, adding Rust endpoints, modifying the setup wizard UI, configuring screen rotation, or deploying to a device. Covers the full stack: Rust actix-web server, Debian image generation with rpi-image-gen (master) + mmdebstrap, YAML layer system, Docker cross-compilation, systemd services, and vanilla JS frontend.
 ---
 
-# KioskOS Skill
+## KioskOS Skill — Referencia mínima
 
-Use this skill to work on the **KioskOS** project — a custom Raspberry Pi Linux image that boots into a fullscreen kiosk browser with a Rust-powered WiFi setup wizard.
+### Flujos principales
 
-## When to Load This Skill
-
-Load this skill when the user asks about any of:
-- Building or rebuilding the RPi image (`./build.sh`)
-- WiFi configuration not working or not persisting
-- The Rust HTTP server (`manager-os/src/main.rs`)
-- The WiFi wizard frontend (`manager-os/static/`)
-- systemd services on the device
-- Screen rotation or kiosk URL configuration
-- Adding or modifying a rpi-image-gen layer
-- Cross-compiling for `aarch64-unknown-linux-gnu`
-- Flashing the image to an SD card
-- Debugging on the device with `journalctl`
+1. Build imagen completa:
+  ```bash
+  ./build.sh
+  # Output: deploy/adagi_os.img
+  ```
+2. Deploy binario y static a la Pi:
+  ```bash
+  scripts/dev-sync-all.sh
+  ```
+3. Logs en la Pi:
+  ```bash
+  scripts/dev-logs.sh
+  ```
+4. Reiniciar kiosk:
+  ```bash
+  scripts/dev-restart-kiosk.sh
+  ```
 
 ---
 
-## Core Workflows
-
-### 1. Build the full image
-
-```bash
-cd /path/to/KioskOS
-./build.sh
-# Output: deploy/adagi_os.img
-```
-
-This pipeline:
-1. Cross-compiles the Rust binary via Docker (`aarch64-unknown-linux-gnu`)
-2. Copies binary → `kiosk_os/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/wifi_setup_service`
-3. Copies `static/` → `kiosk_os/image/mbr/simple_dual/device/rootfs-overlay/static/`
-4. Runs `rpi-image-gen build -S /home/imagegen/kiosk_os -c adagi_os.yaml` inside Docker
+### Reglas críticas
+1. NO modificar la lógica en `kiosk-launch.sh.tpl` — toda la lógica va en Rust o `script.js`
+2. Los archivos estáticos van en `/static` en el dispositivo
+3. WiFi config persiste en `/etc/wpa_supplicant/wpa_supplicant-wlan0.conf`
+4. Los endpoints siempre devuelven JSON, nunca redireccionan el form
+5. `wpa_supplicant@wlan0.service` debe estar habilitado en `customize-kiosk`
 5. Extracts `adagi_os.img` → `deploy/adagi_os.img`
 
 ### 2. Run the server locally (no device needed)

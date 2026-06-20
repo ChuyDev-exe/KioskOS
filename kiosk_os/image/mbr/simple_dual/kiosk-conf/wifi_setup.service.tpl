@@ -9,6 +9,7 @@ Environment="STATIC_PATH=/static"
 WorkingDirectory=/static
 Restart=always
 RestartSec=5
+WatchdogSec=30
 User=root
 Group=root
 

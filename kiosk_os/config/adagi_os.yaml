@@ -18,5 +18,6 @@ layer:
   app: adagi-kiosk
 
 kiosk:
-  homepage_url: https://www.facebook.com/
-  rotation: "180"
+  homepage_url: https://jesusvelez.xyz/
+  rotation: "90"
+  ssh_enable: "1"

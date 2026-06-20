@@ -12,9 +12,16 @@ services:
         build:
             context: ./manager-os
             dockerfile: Dockerfile.manager
-        privileged: true
         stdin_open: true
         tty: true
         image: manager-os:latest
+        environment:
+            CARGO_TARGET_DIR: /app/target
         volumes:
             - ./manager-os:/app
+            - cargo-target:/app/target
+            - cargo-registry:/usr/local/cargo/registry
+
+volumes:
+    cargo-target:
+    cargo-registry:

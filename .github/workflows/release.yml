@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Cache and build manager-os Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./manager-os
+          file: ./manager-os/Dockerfile.manager
+          load: true
+          tags: manager-os:latest
+          cache-from: type=gha,scope=manager-os
+          cache-to: type=gha,mode=max,scope=manager-os
+
+      - name: Cache and build rpi-image-gen Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: adagi_os:latest
+          cache-from: type=gha,scope=adagi-os
+          cache-to: type=gha,mode=max,scope=adagi-os
+
+      - name: Build image (uses cached Docker layers)
+        run: ./build.sh
+
+      - name: Compress
+        run: xz -T0 deploy/adagi_os.img
+
+      - name: Install minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
+
+      - name: Sign
+        run: minisign -Sm deploy/adagi_os.img.xz -s <(echo "${{ secrets.MINISIGN_KEY }}")
+
+      - name: Determine channel
+        id: channel
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          case "$TAG" in
+            *-alpha*) CHANNEL="alpha" ;;
+            *-beta*)  CHANNEL="beta"  ;;
+            *-rc*)    CHANNEL="rc"    ;;
+            *)        CHANNEL="stable" ;;
+          esac
+          echo "version=$TAG"   >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Checksum + manifest
+        run: |
+          VER="${{ steps.channel.outputs.version }}"
+          CHANNEL="${{ steps.channel.outputs.channel }}"
+          SHA=$(sha256sum deploy/adagi_os.img.xz | cut -d' ' -f1)
+          jq -n \
+            --arg v "$VER" \
+            --arg s "$SHA" \
+            --arg ch "$CHANNEL" \
+            '{version:$v,family:"rpi",app:"kiosk",channel:$ch,
+              url:"/firmware/rpi/kiosk/\($ch)/\($v)/rootfs.img.xz",sha256:$s}' \
+            > latest.json
+
+      - name: Publish to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          VER="${{ steps.channel.outputs.version }}"
+          CHANNEL="${{ steps.channel.outputs.channel }}"
+          aws s3 cp deploy/adagi_os.img.xz \
+            "s3://mcu-ota-dev-firmware/firmware/rpi/kiosk/${CHANNEL}/${VER}/rootfs.img.xz" \
+            --endpoint-url "${R2_ENDPOINT}"
+          aws s3 cp latest.json \
+            "s3://mcu-ota-dev-firmware/manifest/rpi/kiosk/${CHANNEL}/latest.json" \
+            --endpoint-url "${R2_ENDPOINT}"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            deploy/adagi_os.img.xz*
+            deploy/*.sbom

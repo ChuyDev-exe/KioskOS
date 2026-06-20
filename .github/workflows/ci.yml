@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pip install yamllint
-      - run: shellcheck build.sh scripts/*.sh kiosk_os/image/mbr/simple_dual/kiosk-conf/*.tpl
+      - run: shellcheck build.sh scripts/*.sh kiosk_os/image/mbr/simple_dual/kiosk-conf/kiosk-launch.sh.tpl kiosk_os/image/mbr/simple_dual/kiosk-conf/labwc-autostart.sh.tpl
       - run: yamllint kiosk_os/**/*.yaml
 
   frontend:
@@ -43,8 +43,6 @@ jobs:
 
   audit:
     runs-on: ubuntu-latest
-    env:
-      CARGO_TARGET_DIR: /tmp/cargo-target-audit
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -53,4 +51,4 @@ jobs:
           tool: cargo-audit,cargo-deny
       - run: cd manager-os && cargo generate-lockfile
       - run: cd manager-os && cargo audit
-      - run: cd manager-os && cargo deny check advisories
+      - run: cd manager-os && cargo deny --target-dir /tmp/cargo-target-audit check advisories

@@ -116,15 +116,15 @@ fi
 # Build binario Rust y base rpi-image-gen en paralelo
 BIN_BUILD_NEEDED=0
 if [ ! -f ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME} ] || \
-     [ $(find ./manager-os/src -type f -newer ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME} | wc -l) -gt 0 ]; then
+     [ "$(find ./manager-os/src -type f -newer ./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME} | wc -l)" -gt 0 ]; then
   BIN_BUILD_NEEDED=1
 fi
 
 STATIC_BUILD_NEEDED=0
 STATIC_DEST="./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/static"
 if [ ! -d "$STATIC_DEST" ] || \
-     [ $(find ./manager-os/static -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) \
-        -newer "$STATIC_DEST" 2>/dev/null | wc -l) -gt 0 ]; then
+     [ "$(find ./manager-os/static -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) \
+         -newer "$STATIC_DEST" 2>/dev/null | wc -l)" -gt 0 ]; then
   STATIC_BUILD_NEEDED=1
 fi
 
@@ -152,9 +152,9 @@ if [ "$BIN_BUILD_NEEDED" = "1" ]; then
     (
       docker compose build ${BINARY_BUILD_SVC}
       CID=$(docker create ${BINARY_BUILD_SVC}:latest)
-      docker cp ${CID}:/wifi_setup_service \
+      docker cp "${CID}":/wifi_setup_service \
           "./${RPI_CUSTOMIZATIONS_DIR}/image/mbr/simple_dual/device/rootfs-overlay/usr/local/bin/${BINARY_NAME}"
-      docker rm ${CID} >/dev/null 2>&1 || true
+      docker rm "${CID}" >/dev/null 2>&1 || true
     ) &
   fi
 else
@@ -182,12 +182,14 @@ docker compose run --name ${RPI_BUILD_SVC}-${BUILD_ID} -d ${RPI_BUILD_SVC} \
       -S /home/${RPI_BUILD_USER}/${RPI_CUSTOMIZATIONS_DIR} \
       -c adagi_os.yaml" \
   && CID=$(docker ps -a --filter "name=${RPI_BUILD_SVC}-${BUILD_ID}" --format "{{.ID}}" | head -n 1) \
-  && IMG_PATH=$(docker exec ${CID} find /home/${RPI_BUILD_USER}/work -name "${RPI_IMAGE_NAME}.img" 2>/dev/null | head -1) \
-  && docker cp ${CID}:"${IMG_PATH}" ./deploy/${RPI_IMAGE_NAME}.img
+  && IMG_PATH=$(docker exec "${CID}" find /home/${RPI_BUILD_USER}/work -name "${RPI_IMAGE_NAME}.img" 2>/dev/null | head -1) \
+  && docker cp "${CID}":"${IMG_PATH}" ./deploy/${RPI_IMAGE_NAME}.img
 
 if [[ "${SAVE_SBOM}" == "1" ]] && [[ -n "${CID:-}" ]]; then
-  SBOM_PATH=$(docker exec ${CID} find /home/${RPI_BUILD_USER}/work -name "${RPI_IMAGE_NAME}.sbom" 2>/dev/null | head -1)
-  [[ -n "${SBOM_PATH:-}" ]] && docker cp ${CID}:"${SBOM_PATH}" ./deploy/${RPI_IMAGE_NAME}.sbom || true
+  SBOM_PATH=$(docker exec "${CID}" find /home/${RPI_BUILD_USER}/work -name "${RPI_IMAGE_NAME}.sbom" 2>/dev/null | head -1)
+  if [[ -n "${SBOM_PATH:-}" ]]; then
+    docker cp "${CID}":"${SBOM_PATH}" ./deploy/${RPI_IMAGE_NAME}.sbom
+  fi
 fi
 
 echo "🚀 Completed -> ${RPI_CUSTOMIZATIONS_DIR}/deploy/${RPI_IMAGE_NAME}.img"

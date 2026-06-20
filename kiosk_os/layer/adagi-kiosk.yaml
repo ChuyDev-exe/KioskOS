@@ -15,12 +15,12 @@
 # X-Env-Var-rotation-Required: n
 # X-Env-Var-rotation-Valid: keywords:0,normal,90,180,270
 # X-Env-Var-rotation-Set: y
-# X-Env-Var-wifi_ssid: 
+# X-Env-Var-wifi_ssid:
 # X-Env-Var-wifi_ssid-Desc: Optional preconfigured WiFi SSID for first boot
 # X-Env-Var-wifi_ssid-Required: n
 # X-Env-Var-wifi_ssid-Valid: string
 # X-Env-Var-wifi_ssid-Set: n
-# X-Env-Var-wifi_psk: 
+# X-Env-Var-wifi_psk:
 # X-Env-Var-wifi_psk-Desc: Optional WiFi password (WPA/WPA2) for preconfigured SSID
 # X-Env-Var-wifi_psk-Required: n
 # X-Env-Var-wifi_psk-Valid: string
@@ -30,8 +30,8 @@
 # X-Env-Var-ssh_enable-Required: n
 # X-Env-Var-ssh_enable-Valid: keywords:0,1,true,false
 # X-Env-Var-ssh_enable-Set: y
-# X-Env-Var-ssh_authorized_key: 
-# X-Env-Var-ssh_authorized_key-Desc: Optional public key added to ~/.ssh/authorized_keys for the kiosk user
+# X-Env-Var-ssh_authorized_key:
+# X-Env-Var-ssh_authorized_key-Desc: Optional public key added to ~/.ssh/authorized_keys
 # X-Env-Var-ssh_authorized_key-Required: n
 # X-Env-Var-ssh_authorized_key-Valid: string
 # X-Env-Var-ssh_authorized_key-Set: n

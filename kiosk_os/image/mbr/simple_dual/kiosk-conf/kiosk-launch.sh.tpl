@@ -21,7 +21,8 @@ check_wifi() {
         return 1
     fi
     
-    local state=$(cat /sys/class/net/$interface/operstate 2>/dev/null || echo "down")
+    local state
+    state=$(cat /sys/class/net/$interface/operstate 2>/dev/null || echo "down")
     if [ "$state" != "up" ]; then
         return 1
     fi
@@ -39,7 +40,7 @@ check_internet() {
 
 # Firefox options
 FIREFOX_PROFILE="/home/<KIOSK_USER>/.mozilla/firefox/kiosk.default"
-FIREFOX_OPTS="--noerrdialogs --profile $FIREFOX_PROFILE"
+FIREFOX_OPTS=(--noerrdialogs --profile "$FIREFOX_PROFILE")
 
 # Give networking a short head-start, then choose launch mode.
 for _ in 1 2 3 4 5; do
@@ -48,7 +49,7 @@ for _ in 1 2 3 4 5; do
 done
 
 if check_wifi && check_internet; then
-    exec /usr/bin/firefox-esr http://localhost:8080 $FIREFOX_OPTS --kiosk
+    exec /usr/bin/firefox-esr http://localhost:8080 "${FIREFOX_OPTS[@]}" --kiosk
 else
-    exec /usr/bin/firefox-esr http://localhost:8080 $FIREFOX_OPTS --start-maximized
+    exec /usr/bin/firefox-esr http://localhost:8080 "${FIREFOX_OPTS[@]}" --start-maximized
 fi

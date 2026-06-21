@@ -109,7 +109,7 @@ sync_config_from_options
 if command -v npx &>/dev/null; then
   if [ -f ./manager-os/static/tailwind.config.js ]; then
     echo "🎨 Precompiling Tailwind CSS..."
-    (cd manager-os/static && npx --yes tailwindcss -i input.css -o tailwind-precompiled.css 2>/dev/null) || true
+    (cd manager-os/static && npx --yes tailwindcss@3 -i input.css -o tailwind-precompiled.css 2>/dev/null) || true
   fi
 fi
 

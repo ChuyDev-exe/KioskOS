@@ -29,6 +29,10 @@ fi
 
 echo "Building (debug)..."
 cargo build
+
+echo "Rebuilding Tailwind CSS..."
+(cd "$SCRIPT_DIR/static" && npx --yes tailwindcss@3 -i input.css -o tailwind-precompiled.css 2>/dev/null) || echo "Warning: Tailwind rebuild failed"
+
 echo "Starting (debug)..."
 STATIC_PATH="$SCRIPT_DIR/static" cargo run
 

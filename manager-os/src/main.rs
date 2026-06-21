@@ -1,13 +1,13 @@
 use actix_files as fs_serve;
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
-use std::fs::File;
 use std::io::Write;
 use std::os::unix::net::UnixDatagram;
 use std::process::Command;
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -17,57 +17,65 @@ struct WifiForm {
     password: String,
 }
 
+fn escape_wpa(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace(['\n', '\r'], "")
+}
+
+fn load_template(path: &str, url: &str) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .map(|c| c.replace("{{KIOSK_HOMEPAGE_URL}}", url))
+}
+
+fn kiosk_url() -> String {
+    env::var("KIOSK_HOMEPAGE_URL")
+        .unwrap_or_else(|_| "https://self-order-kiosk-front.vercel.app/".to_string())
+}
+
+fn api_token() -> Option<String> {
+    let t = env::var("API_TOKEN").unwrap_or_default();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t)
+    }
+}
+
+fn check_auth(req: &HttpRequest) -> bool {
+    let Some(expected) = api_token() else {
+        return true;
+    };
+    let header = req
+        .headers()
+        .get("X-API-Token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    header == expected
+}
+
 async fn index() -> impl Responder {
-    // Verificar si hay conexión WiFi
     let has_wifi = web::block(check_wifi_connection).await;
+    let static_path = env::var("STATIC_PATH").unwrap_or_else(|_| "/static".to_string());
 
     match has_wifi {
         Ok(true) => {
-            // Si hay WiFi, servir HTML que fuerza fullscreen y redirige
-            let redirect_url = env::var("KIOSK_HOMEPAGE_URL")
-                .unwrap_or_else(|_| "https://self-order-kiosk-front.vercel.app/".to_string());
-
-            let html = format!(
-                r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Redirecting...</title>
-    <style>
-        body {{
-            margin: 0;
-            background: #000;
-            color: #fff;
-            font-family: sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-        }}
-    </style>
-</head>
-<body>
-    <div>Loading kiosk...</div>
-    <script>
-        // Redirect to kiosk URL
-        setTimeout(() => {{
-            window.location.href = "{}";
-        }}, 500);
-    </script>
-</body>
-</html>"#,
-                redirect_url
-            );
-
-            HttpResponse::Ok()
-                .content_type("text/html; charset=utf-8")
-                .body(html)
+            let tpl_path = format!("{}/redirect.html", static_path);
+            match load_template(&tpl_path, &kiosk_url()) {
+                Some(html) => HttpResponse::Ok()
+                    .content_type("text/html; charset=utf-8")
+                    .body(html),
+                None => HttpResponse::Ok()
+                    .content_type("text/html; charset=utf-8")
+                    .body(format!(
+                        r#"<!DOCTYPE html><html><body><script>window.location.href='{}';</script></body></html>"#,
+                        kiosk_url()
+                    )),
+            }
         }
         _ => {
-            // Si no hay WiFi, mostrar la interfaz de configuración
-            let static_path = env::var("STATIC_PATH").unwrap_or_else(|_| "/static".to_string());
             let index_path = format!("{}/index.html", static_path);
-
             match fs::read_to_string(&index_path) {
                 Ok(content) => HttpResponse::Ok()
                     .content_type("text/html; charset=utf-8")
@@ -81,95 +89,100 @@ async fn index() -> impl Responder {
     }
 }
 
-async fn start_kiosk() -> impl Responder {
-    // Reiniciar el servicio kiosk para que Firefox se lance en modo --kiosk
+async fn start_kiosk(req: HttpRequest) -> impl Responder {
+    if !check_auth(&req) {
+        return HttpResponse::Unauthorized().body("Unauthorized");
+    }
+
     let result = web::block(|| {
-        let restart_output = Command::new("systemctl")
+        Command::new("systemctl")
             .args(["restart", "kiosk.service"])
             .output()
-            .map_err(|e| {
-                std::io::Error::other(format!("Failed to restart kiosk service: {}", e))
-            })?;
-
-        if !restart_output.status.success() {
-            let error = String::from_utf8_lossy(&restart_output.stderr);
-            return Err(std::io::Error::other(format!(
-                "Kiosk service restart failed: {}",
-                error
-            )));
-        }
-
-        Ok(())
+            .map_err(|e| format!("Failed to restart kiosk service: {}", e))
+            .and_then(|o| {
+                if o.status.success() {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Kiosk service restart failed: {}",
+                        String::from_utf8_lossy(&o.stderr)
+                    ))
+                }
+            })
     })
     .await;
 
     match result {
         Ok(Ok(())) => {
-            let redirect_url = env::var("KIOSK_HOMEPAGE_URL")
-                .unwrap_or_else(|_| "https://self-order-kiosk-front.vercel.app/".to_string());
-
-            let html = format!(
-                r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Starting Kiosk...</title>
-    <style>
-        body {{
-            margin: 0;
-            background: #000;
-            color: #fff;
-            font-family: sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-        }}
-    </style>
-</head>
-<body>
-    <div>Starting kiosk mode...</div>
-    <script>
-        setTimeout(() => {{
-            window.location.href = "{}";
-        }}, 2000);
-    </script>
-</body>
-</html>"#,
-                redirect_url
+            let tpl_path = format!(
+                "{}/start_kiosk.html",
+                env::var("STATIC_PATH").unwrap_or_else(|_| "/static".to_string())
             );
-
-            HttpResponse::Ok()
-                .content_type("text/html; charset=utf-8")
-                .body(html)
+            match load_template(&tpl_path, &kiosk_url()) {
+                Some(html) => HttpResponse::Ok()
+                    .content_type("text/html; charset=utf-8")
+                    .body(html),
+                None => HttpResponse::Ok()
+                    .content_type("text/html; charset=utf-8")
+                    .body(format!(
+                        r#"<!DOCTYPE html><html><body><script>window.location.href='{}';</script></body></html>"#,
+                        kiosk_url()
+                    )),
+            }
         }
         Ok(Err(e)) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"success": false, "error": format!("{}", e)})),
+            .json(serde_json::json!({"success": false, "error": e})),
         Err(e) => HttpResponse::InternalServerError()
             .json(serde_json::json!({"success": false, "error": format!("Blocking error: {}", e)})),
     }
 }
 
+struct WifiCache {
+    connected: bool,
+    cached_at: Instant,
+}
+
+static WIFI_CACHE: Mutex<Option<WifiCache>> = Mutex::new(None);
+static WIFI_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
 fn check_wifi_connection() -> bool {
+    let now = Instant::now();
+
+    if let Ok(cache) = WIFI_CACHE.lock() {
+        if let Some(ref entry) = *cache {
+            if now.duration_since(entry.cached_at).as_secs() < 10 {
+                return entry.connected;
+            }
+        }
+    }
+
+    let connected = check_wifi_connection_inner();
+
+    if let Ok(mut cache) = WIFI_CACHE.lock() {
+        *cache = Some(WifiCache {
+            connected,
+            cached_at: now,
+        });
+    }
+
+    connected
+}
+
+fn check_wifi_connection_inner() -> bool {
     let interface = "wlan0";
 
-    // First check if interface is up
     if !is_interface_connected(interface) {
         return false;
     }
 
-    // Check if it has an IP address
     let output = Command::new("ip")
         .args(["addr", "show", interface])
         .output();
 
     let has_ip = match output {
-        Ok(output) => {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            output_str
-                .lines()
-                .any(|line| line.trim().starts_with("inet ") && !line.contains("127.0.0.1"))
-        }
+        Ok(output) => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line.trim().starts_with("inet ") && !line.contains("127.0.0.1")),
         Err(_) => false,
     };
 
@@ -177,45 +190,30 @@ fn check_wifi_connection() -> bool {
         return false;
     }
 
-    // Verify actual internet connectivity with a quick ping
-    let ping_output = Command::new("ping")
-        .args(["-c", "1", "-W", "5", "8.8.8.8"])
-        .output();
-
-    match ping_output {
-        Ok(output) => {
-            let success = output.status.success();
-            if !success {
-                eprintln!("Ping failed - no internet connectivity");
-            }
-            success
-        }
-        Err(e) => {
-            eprintln!("Ping command failed: {}", e);
-            false
-        }
-    }
+    Command::new("ping")
+        .args(["-c", "1", "-W", "2", "8.8.8.8"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 async fn check_wifi() -> impl Responder {
     let has_wifi = web::block(check_wifi_connection).await;
+    let error_msg = WIFI_ERROR.lock().ok().and_then(|e| e.clone());
 
-    match has_wifi {
-        Ok(true) => HttpResponse::Ok().json(serde_json::json!({"connected": true})),
-        _ => HttpResponse::Ok().json(serde_json::json!({"connected": false})),
-    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "connected": has_wifi.unwrap_or(false),
+        "error": error_msg,
+    }))
 }
 
 fn scan_wifi_networks() -> Vec<String> {
     let mut ssids: BTreeSet<String> = BTreeSet::new();
 
-    // Preferred: `iw` (provided by package `iw`)
     if let Ok(output) = Command::new("iw").args(["dev", "wlan0", "scan"]).output() {
         if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                let trimmed = line.trim_start();
-                if let Some(ssid) = trimmed.strip_prefix("SSID: ") {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                if let Some(ssid) = line.trim_start().strip_prefix("SSID: ") {
                     let ssid = ssid.trim();
                     if !ssid.is_empty() {
                         ssids.insert(ssid.to_string());
@@ -225,17 +223,14 @@ fn scan_wifi_networks() -> Vec<String> {
         }
     }
 
-    // Fallback: `iwlist` (provided by package `wireless-tools`)
     if ssids.is_empty() {
         if let Ok(output) = Command::new("iwlist").args(["wlan0", "scan"]).output() {
             if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
                     let trimmed = line.trim();
                     if let Some(pos) = trimmed.find("ESSID:\"") {
-                        let value = &trimmed[(pos + 7)..];
-                        if let Some(end) = value.find('"') {
-                            let ssid = value[..end].trim();
+                        if let Some(end) = trimmed[(pos + 7)..].find('"') {
+                            let ssid = trimmed[(pos + 7)..(pos + 7 + end)].trim();
                             if !ssid.is_empty() {
                                 ssids.insert(ssid.to_string());
                             }
@@ -250,30 +245,79 @@ fn scan_wifi_networks() -> Vec<String> {
 }
 
 async fn scan_wifi() -> impl Responder {
-    let result = web::block(scan_wifi_networks).await;
-
-    match result {
+    match web::block(scan_wifi_networks).await {
         Ok(networks) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
-            "networks": networks
+            "networks": networks,
         })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "success": false,
-            "error": format!("Failed to scan WiFi networks: {}", e)
+            "error": format!("Failed to scan WiFi networks: {}", e),
         })),
     }
 }
 
-async fn set_wifi(form: web::Form<WifiForm>) -> impl Responder {
+async fn set_wifi(form: web::Form<WifiForm>, req: HttpRequest) -> impl Responder {
+    if !check_auth(&req) {
+        return HttpResponse::Unauthorized().body("Unauthorized");
+    }
+
     let ssid = form.ssid.clone();
     let password = form.password.clone();
-    let interface = "wlan0";
 
     println!("Received WiFi config request - SSID: {}", ssid);
 
-    let result = web::block(move || {
-        let config = format!(
-            r#"ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+    thread::spawn(move || {
+        let escaped_ssid = escape_wpa(&ssid);
+        let escaped_psk = escape_wpa(&password);
+        let interface = "wlan0";
+
+        let result = match Command::new("nmcli")
+            .args([
+                "dev",
+                "wifi",
+                "connect",
+                &escaped_ssid,
+                "password",
+                &escaped_psk,
+            ])
+            .output()
+        {
+            Ok(o) if o.status.success() => {
+                println!("nmcli connected successfully");
+                Ok(())
+            }
+            Ok(o) => {
+                let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                eprintln!("nmcli failed ({}), falling back to wpa_supplicant", msg);
+                configure_wpa_supplicant(&escaped_ssid, &escaped_psk, interface)
+            }
+            Err(e) => {
+                eprintln!(
+                    "nmcli not available ({}), falling back to wpa_supplicant",
+                    e
+                );
+                configure_wpa_supplicant(&escaped_ssid, &escaped_psk, interface)
+            }
+        };
+
+        if let Ok(mut err) = WIFI_ERROR.lock() {
+            *err = result.as_ref().err().map(|e| e.to_string());
+        }
+        if result.is_ok() {
+            println!("WiFi configured successfully for SSID: {}", ssid);
+        }
+    });
+
+    HttpResponse::Accepted().json(serde_json::json!({
+        "success": true,
+        "message": "WiFi configuration in progress",
+    }))
+}
+
+fn configure_wpa_supplicant(ssid: &str, psk: &str, interface: &str) -> Result<(), String> {
+    let config = format!(
+        r#"ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
 country=US
 
@@ -283,119 +327,79 @@ network={{
     key_mgmt=WPA-PSK
 }}
 "#,
-            ssid, password
-        );
+        ssid, psk
+    );
 
-        println!("Creating wpa_supplicant config...");
+    println!("Creating wpa_supplicant config...");
 
-        // Create directory if it doesn't exist
-        let _ = Command::new("mkdir")
-            .args(["-p", "/etc/wpa_supplicant"])
-            .output();
+    let _ = Command::new("mkdir")
+        .args(["-p", "/etc/wpa_supplicant"])
+        .output();
 
-        // Write to persistent location
-        let file_path = "/etc/wpa_supplicant/wpa_supplicant-wlan0.conf";
-        File::create(file_path)
-            .and_then(|mut file| file.write_all(config.as_bytes()))
-            .map_err(|e| {
-                eprintln!("Failed to write config file: {}", e);
-                std::io::Error::other(format!("Failed to write config: {}", e))
-            })?;
-
-        println!("Config file written successfully");
-
-        // Set proper permissions
-        let _ = Command::new("chmod").args(["600", file_path]).output();
-
-        // Sync to ensure file is written
-        let _ = Command::new("sync").output();
-
-        // Stop systemd service if running
-        let _ = Command::new("systemctl")
-            .args(["stop", "wpa_supplicant@wlan0"])
-            .output();
-
-        thread::sleep(Duration::from_secs(1));
-
-        // Enable and start the service
-        let enable_output = Command::new("systemctl")
-            .args(["enable", "wpa_supplicant@wlan0"])
-            .output()
-            .map_err(|e| std::io::Error::other(format!("Failed to enable service: {}", e)))?;
-
-        if !enable_output.status.success() {
-            let error = String::from_utf8_lossy(&enable_output.stderr);
-            eprintln!("Warning: Failed to enable wpa_supplicant@wlan0: {}", error);
-        }
-
-        let start_output = Command::new("systemctl")
-            .args(["start", "wpa_supplicant@wlan0"])
-            .output()
-            .map_err(|e| std::io::Error::other(format!("Failed to start service: {}", e)))?;
-
-        if !start_output.status.success() {
-            let error = String::from_utf8_lossy(&start_output.stderr);
-            return Err(std::io::Error::other(format!(
-                "wpa_supplicant service start failed: {}",
-                error
-            )));
-        }
-
-        thread::sleep(Duration::from_secs(3));
-
-        // Request IP with dhclient
-        let dhclient_output = Command::new("/usr/sbin/dhclient")
-            .arg(interface)
-            .output()
-            .map_err(|e| std::io::Error::other(format!("dhclient execution failed: {}", e)))?;
-
-        if !dhclient_output.status.success() {
-            let error = String::from_utf8_lossy(&dhclient_output.stderr);
-            eprintln!("Warning: dhclient failed: {}", error);
-        }
-
-        // Wait for network
-        if !wait_for_network_with_interface(30, interface) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "Network not available after 30 seconds",
-            ));
-        }
-
-        // Final sync
-        let _ = Command::new("sync").output();
-
-        trigger_timesyncd()?;
-
-        Ok(())
-    })
-    .await;
-
-    // Handle the result and return an HTTP response
-    match result {
-        Ok(Ok(())) => HttpResponse::Ok()
-            .json(serde_json::json!({"success": true, "message": "WiFi configured successfully"})),
-        Ok(Err(e)) => HttpResponse::Ok()
-            .json(serde_json::json!({"success": false, "error": format!("{}", e)})),
-        Err(e) => HttpResponse::InternalServerError()
-            .json(serde_json::json!({"success": false, "error": format!("Blocking error: {}", e)})),
+    let file_path = "/etc/wpa_supplicant/wpa_supplicant-wlan0.conf";
+    {
+        let mut file =
+            fs::File::create(file_path).map_err(|e| format!("Failed to write config: {}", e))?;
+        file.write_all(config.as_bytes())
+            .map_err(|e| format!("Failed to write config: {}", e))?;
     }
+
+    let _ = Command::new("chmod").args(["600", file_path]).output();
+    let _ = Command::new("sync").output();
+
+    let _ = Command::new("systemctl")
+        .args(["stop", "wpa_supplicant@wlan0"])
+        .output();
+    thread::sleep(Duration::from_secs(1));
+
+    let out = Command::new("systemctl")
+        .args(["enable", "wpa_supplicant@wlan0"])
+        .output()
+        .map_err(|e| format!("Failed to enable service: {}", e))?;
+    if !out.status.success() {
+        eprintln!(
+            "Warning: enable wpa_supplicant@wlan0: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    let out = Command::new("systemctl")
+        .args(["start", "wpa_supplicant@wlan0"])
+        .output()
+        .map_err(|e| format!("Failed to start service: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "wpa_supplicant start failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+
+    thread::sleep(Duration::from_secs(3));
+
+    let _ = Command::new("/usr/sbin/dhclient").arg(interface).output();
+
+    if !wait_for_network_with_interface(30, interface) {
+        return Err("Network not available after 30 seconds".to_string());
+    }
+
+    let _ = Command::new("sync").output();
+    trigger_timesyncd().map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 fn is_interface_connected(interface: &str) -> bool {
-    if let Ok(state) = fs::read_to_string(format!("/sys/class/net/{}/operstate", interface)) {
-        return state.trim() == "up";
-    }
-    false
+    fs::read_to_string(format!("/sys/class/net/{}/operstate", interface))
+        .ok()
+        .map(|s| s.trim() == "up")
+        .unwrap_or(false)
 }
 
 fn trigger_timesyncd() -> std::io::Result<()> {
-    let output = Command::new("systemctl")
-        .arg("restart")
-        .arg("systemd-timesyncd")
+    let out = Command::new("systemctl")
+        .args(["restart", "systemd-timesyncd"])
         .output()?;
-    if !output.status.success() {
-        eprintln!("Failed to restart systemd-timesyncd: {:?}", output);
+    if !out.status.success() {
         return Err(std::io::Error::other("systemd-timesyncd restart failed"));
     }
     Ok(())
@@ -405,14 +409,12 @@ fn wait_for_network_with_interface(timeout_secs: u64, interface: &str) -> bool {
     let start = Instant::now();
     loop {
         if is_interface_connected(interface) {
-            // Check for IP address assignment
-            let output = Command::new("ip")
+            if let Ok(output) = Command::new("ip")
                 .args(["addr", "show", interface])
-                .output();
-            if let Ok(output) = output {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                if output_str.contains("inet ") {
-                    return true; // Interface has an IP address
+                .output()
+            {
+                if String::from_utf8_lossy(&output.stdout).contains("inet ") {
+                    return true;
                 }
             }
         }
@@ -423,40 +425,66 @@ fn wait_for_network_with_interface(timeout_secs: u64, interface: &str) -> bool {
     }
 }
 
+async fn health() -> impl Responder {
+    let uptime = fs::read_to_string("/proc/uptime")
+        .ok()
+        .and_then(|s| s.split('.').next().map(|s| s.to_string()))
+        .unwrap_or_default();
+
+    let wlan_connected = is_interface_connected("wlan0");
+
+    let kiosk_active = Command::new("systemctl")
+        .args(["is-active", "kiosk.service"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
+        .unwrap_or(false);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "uptime_secs": uptime,
+        "wlan_connected": wlan_connected,
+        "kiosk_service_active": kiosk_active,
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let static_path = env::var("STATIC_PATH").unwrap_or_else(|_| "/static".to_string());
+    let bind_addr = env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let bind_port = env::var("BIND_PORT").unwrap_or_else(|_| "8080".to_string());
+    let bind = format!("{}:{}", bind_addr, bind_port);
 
-    // sd_notify watchdog thread (systemd watchdog)
     if let Ok(socket_path) = env::var("NOTIFY_SOCKET") {
         if !socket_path.is_empty() {
             let sock_path = socket_path.clone();
             thread::spawn(move || {
-                let sock = UnixDatagram::unbound().ok();
-                loop {
-                    if let Some(ref s) = sock {
+                if let Ok(ref s) = UnixDatagram::unbound() {
+                    loop {
                         let _ = s.send_to(b"WATCHDOG=1", &sock_path);
+                        thread::sleep(Duration::from_secs(10));
                     }
-                    thread::sleep(Duration::from_secs(10));
                 }
             });
         }
     }
 
-    println!("Starting WiFi setup service on 0.0.0.0:8080");
+    println!("Starting WiFi setup service on {}", bind);
     println!("Serving static files from: {}", static_path);
+    if api_token().is_some() {
+        println!("API authentication enabled (X-API-Token)");
+    }
 
     HttpServer::new(move || {
-        let static_path_clone = static_path.clone();
         App::new()
             .route("/", web::get().to(index))
             .route("/set_wifi", web::post().to(set_wifi))
             .route("/start_kiosk", web::get().to(start_kiosk))
             .route("/check_wifi", web::get().to(check_wifi))
             .route("/scan_wifi", web::get().to(scan_wifi))
-            .service(fs_serve::Files::new("/static", static_path_clone).show_files_listing())
+            .route("/health", web::get().to(health))
+            .service(fs_serve::Files::new("/static", static_path.clone()))
     })
-    .bind("0.0.0.0:8080")?
+    .bind(&bind)?
     .run()
     .await
 }

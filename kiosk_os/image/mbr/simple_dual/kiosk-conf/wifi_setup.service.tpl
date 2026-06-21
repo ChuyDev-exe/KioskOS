@@ -6,6 +6,7 @@ After=network.target
 ExecStart=/usr/local/bin/wifi_setup_service
 Environment="KIOSK_HOMEPAGE_URL=<KIOSK_HOMEPAGE_URL>"
 Environment="STATIC_PATH=/static"
+Environment="BIND_ADDRESS=127.0.0.1"
 WorkingDirectory=/static
 Restart=always
 RestartSec=5

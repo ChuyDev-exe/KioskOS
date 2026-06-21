@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-actix-web = "4"
+# default-features disabled to drop the compression stack (zstd/brotli/gzip).
+# The service only talks to localhost, so compression is unused — and it removes
+# the C dependency (zstd-sys) that breaks aarch64 cross-compilation in CI.
+actix-web = { version = "4", default-features = false, features = ["macros"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 actix-files = "0.6"

@@ -12,6 +12,10 @@ concurrency:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    # Cross-linker for the aarch64 release build. No C cross-compiler is needed:
+    # the service has no C dependencies (compression stack is disabled in Cargo.toml).
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -22,10 +26,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: manager-os
-      - run: pip install cargo-zigbuild
       - run: cd manager-os && cargo fmt --check
       - run: cd manager-os && cargo clippy --target aarch64-unknown-linux-gnu -- -D warnings
-      - run: cd manager-os && cargo zigbuild --release --target aarch64-unknown-linux-gnu
+      - run: cd manager-os && cargo build --release --target aarch64-unknown-linux-gnu
       - run: cd manager-os && cargo test
 
   shell:

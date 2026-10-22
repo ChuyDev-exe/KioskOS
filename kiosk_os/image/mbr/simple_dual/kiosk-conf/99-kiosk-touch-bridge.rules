@@ -1,0 +1,11 @@
+# Touch foils and IR touch frames often enumerate as a USB *mouse* with
+# absolute coordinates ("mouse mode"). Start a touch bridge for every USB
+# mouse/tablet input: wifi_setup_service touch-bridge decides from the real
+# capabilities whether it is an absolute mouse (regular relative mice exit
+# immediately) and, if so, re-emits it as a single-touch touchscreen.
+ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_BUS}=="usb", \
+  ENV{ID_INPUT_TOUCHSCREEN}!="1", ENV{ID_INPUT_MOUSE}=="1", \
+  TAG+="systemd", ENV{SYSTEMD_WANTS}+="kiosk-touch-bridge@%k.service"
+ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_BUS}=="usb", \
+  ENV{ID_INPUT_TOUCHSCREEN}!="1", ENV{ID_INPUT_TABLET}=="1", \
+  TAG+="systemd", ENV{SYSTEMD_WANTS}+="kiosk-touch-bridge@%k.service"

@@ -2,6 +2,21 @@
 
 Terse, actionable backlog. Paths relative to repo root. Each item = problem → fix. Pi 3 is target HW (weak CPU, ~1GB RAM, SD storage).
 
+## DONE — touch foils / IR frames detected as a mouse (2026-10-22)
+- Touch bridge (`manager-os/src/touch_bridge.rs`, `wifi_setup_service touch-bridge /dev/input/eventN`):
+  an absolute mouse (ABS_X/ABS_Y + BTN_LEFT, no REL, no BTN_TOUCH, no pen) is grabbed and re-emitted
+  through uinput as a single-touch touchscreen (INPUT_PROP_DIRECT, BTN_TOUCH). Skips devices whose
+  USB device already exposes a touchscreen (auto), lifts the finger on SYN_DROPPED/unplug. Linux-only
+  dependency (`evdev`, pure Rust): macOS local development is unaffected.
+- `99-kiosk-touch-bridge.rules` + `kiosk-touch-bridge@.service` (BindsTo the device, hotplug),
+  `uinput` loaded at boot. Option `kiosk.touch_bridge` = auto | force | off.
+- Rotation matrix also applied to tablets and absolute mice (it was touchscreen-only, so a foil in
+  mouse mode got unrotated coordinates with `rotation: 90`).
+- `kiosk.usbhid_quirks` → `usbhid.quirks=` in cmdline.txt (e.g. 0x40 HID_QUIRK_MULTI_INPUT).
+- `kiosk-input-diag` + `evtest` + `usbutils` on the image for field diagnosis.
+- PENDING: test on the real foil / IR frame (no uinput in the dev sandbox); OSK auto show/hide
+  (wvkbd is always visible; showing it only on text focus needs an input-method-v2 helper).
+
 ## DONE — minified frontend (esbuild + html-minifier-terser) (2026-10-22)
 - `manager-os/scripts/build-frontend.mjs` (`npm run build`): `static/` → `dist/static/`, same file
   names. esbuild minifies JS/CSS (target `safari16` ≈ WPE WebKit 2.38), html-minifier-terser the

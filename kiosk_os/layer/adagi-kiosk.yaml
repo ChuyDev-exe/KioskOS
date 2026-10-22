@@ -30,6 +30,16 @@
 # X-Env-Var-wifi_country-Required: n
 # X-Env-Var-wifi_country-Valid: string
 # X-Env-Var-wifi_country-Set: y
+# X-Env-Var-touch_bridge: auto
+# X-Env-Var-touch_bridge-Desc: Turn touch foils / IR frames detected as an absolute mouse into a touchscreen (auto, force, off)
+# X-Env-Var-touch_bridge-Required: n
+# X-Env-Var-touch_bridge-Valid: keywords:auto,force,off
+# X-Env-Var-touch_bridge-Set: y
+# X-Env-Var-usbhid_quirks:
+# X-Env-Var-usbhid_quirks-Desc: Optional usbhid.quirks kernel parameter, e.g. 0x1234:0x5678:0x40 (comma separated)
+# X-Env-Var-usbhid_quirks-Required: n
+# X-Env-Var-usbhid_quirks-Valid: string
+# X-Env-Var-usbhid_quirks-Set: n
 # X-Env-Var-ssh_enable: 1
 # X-Env-Var-ssh_enable-Desc: Enable SSH service on first boot (1 or 0)
 # X-Env-Var-ssh_enable-Required: n
@@ -60,6 +70,9 @@ mmdebstrap:
     - libegl-mesa0
     - libgl1-mesa-dri
     - openssh-server
+    # Input diagnostics for touch foils / IR frames (kiosk-input-diag).
+    - usbutils
+    - evtest
     - avahi-daemon
   install-recommends: false
   customize-hooks:
@@ -74,6 +87,8 @@ mmdebstrap:
       WIFI_SSID="${IGconf_kiosk_wifi_ssid:-}"
       WIFI_PSK="${IGconf_kiosk_wifi_psk:-}"
       WIFI_COUNTRY="${IGconf_kiosk_wifi_country:-US}"
+      TOUCH_BRIDGE="${IGconf_kiosk_touch_bridge:-auto}"
+      USBHID_QUIRKS="${IGconf_kiosk_usbhid_quirks:-}"
       SSH_ENABLE="${IGconf_kiosk_ssh_enable:-1}"
       SSH_AUTHORIZED_KEY="${IGconf_kiosk_ssh_authorized_key:-}"
 
@@ -221,9 +236,33 @@ mmdebstrap:
           "$1/boot/firmware/cmdline.txt"
 
       # ── Touch rotation (libinput) ────────────────────────────────────────
+      # Touchscreens (including the touch bridge output) and absolute
+      # pointers (touch foils / IR frames left in mouse mode, tablets).
+      # libinput only applies the matrix to absolute devices, so regular
+      # relative mice are not affected.
       printf '%s\n' \
           'ACTION=="add|change", SUBSYSTEM=="input", ENV{ID_INPUT_TOUCHSCREEN}=="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="'"${TOUCH_MATRIX}"'"' \
+          'ACTION=="add|change", SUBSYSTEM=="input", ENV{ID_INPUT_TABLET}=="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="'"${TOUCH_MATRIX}"'"' \
+          'ACTION=="add|change", SUBSYSTEM=="input", ENV{ID_INPUT_MOUSE}=="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="'"${TOUCH_MATRIX}"'"' \
           > "$1/etc/udev/rules.d/99-touchscreen-rotation.rules"
+
+      # ── Touch foils / IR frames in mouse mode → touchscreen ──────────────
+      install -m 755 "$CONFD/kiosk-input-diag.sh" "$1/usr/local/bin/kiosk-input-diag"
+      if [ "$TOUCH_BRIDGE" != "off" ]; then
+          install -m 644 "$CONFD/99-kiosk-touch-bridge.rules" \
+              "$1/etc/udev/rules.d/99-kiosk-touch-bridge.rules"
+          sed -e "s|<KIOSK_TOUCH_BRIDGE>|${TOUCH_BRIDGE}|g" \
+              "$CONFD/kiosk-touch-bridge@.service.tpl" \
+              > "$1/etc/systemd/system/kiosk-touch-bridge@.service"
+          mkdir -p "$1/etc/modules-load.d"
+          echo uinput > "$1/etc/modules-load.d/kiosk-uinput.conf"
+      fi
+
+      # Kernel HID quirks, e.g. 0x40 (HID_QUIRK_MULTI_INPUT) splits a device
+      # that hides its touch collection behind the mouse one.
+      if [ -n "$USBHID_QUIRKS" ]; then
+          sed -i "1 s|\$| usbhid.quirks=${USBHID_QUIRKS}|" "$1/boot/firmware/cmdline.txt"
+      fi
 
       # ── Plymouth splash screen ────────────────────────────────────────────
       mkdir -p "$1/usr/share/plymouth/themes/KioskOs"

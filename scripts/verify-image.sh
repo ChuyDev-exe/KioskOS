@@ -101,6 +101,10 @@ check "the kiosk session starts after the manager service" \
   'debugfs -R "cat /etc/systemd/system/kiosk.service" "$ROOTFS" 2>/dev/null | grep -q "^After=.*wifi_setup.service"' present
 check "the launcher restarts the browser" \
   'debugfs -R "cat /usr/local/bin/kiosk-launch.sh" "$ROOTFS" 2>/dev/null | grep -q "webprocess-failure=restart"' present
+check "the touch bridge (absolute mouse → touchscreen) is installed" \
+  'debugfs -R "cat /etc/udev/rules.d/99-kiosk-touch-bridge.rules" "$ROOTFS" 2>/dev/null | grep -q "kiosk-touch-bridge@"' present
+check "the input diagnostics tool is installed" \
+  'debugfs -R "stat /usr/local/bin/kiosk-input-diag" "$ROOTFS" 2>/dev/null | grep -q "Size:"' present
 check "the documentation was removed" \
   '! debugfs -R "ls /usr/share/doc" "$ROOTFS" 2>/dev/null | grep -q "^[0-9]"' present
 

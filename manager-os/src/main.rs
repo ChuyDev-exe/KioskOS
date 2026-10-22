@@ -1005,8 +1005,35 @@ fn spawn_watchdog() {
 
 // ── Main ────────────────────────────────────────────────────────────────────
 
+#[cfg(target_os = "linux")]
+mod touch_bridge;
+
+fn main() -> io::Result<()> {
+    let args: Vec<String> = env::args().collect();
+    if args.get(1).map(String::as_str) == Some("touch-bridge") {
+        return run_touch_bridge(args.get(2).map(String::as_str));
+    }
+    serve()
+}
+
+#[cfg(target_os = "linux")]
+fn run_touch_bridge(device: Option<&str>) -> io::Result<()> {
+    match device {
+        Some(dev) => touch_bridge::run(dev),
+        None => {
+            eprintln!("usage: wifi_setup_service touch-bridge /dev/input/eventN");
+            std::process::exit(2);
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn run_touch_bridge(_device: Option<&str>) -> io::Result<()> {
+    Err(io::Error::other("touch-bridge is only available on Linux"))
+}
+
 #[actix_web::main]
-async fn main() -> io::Result<()> {
+async fn serve() -> io::Result<()> {
     let s = settings();
     let bind = format!("{}:{}", s.bind_addr, s.bind_port);
 

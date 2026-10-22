@@ -130,6 +130,18 @@ fail_option() {
 
 validate_options() {
   local homepage_url="$1" rotation="$2" ssh_enable="$3" country="$4" ssid="$5" psk="$6"
+  local touch_bridge="$7" usbhid_quirks="$8"
+
+  case "$touch_bridge" in
+    auto | force | off) ;;
+    *) fail_option "kiosk_touch_bridge '$touch_bridge'. Allowed values: auto, force, off" ;;
+  esac
+
+  # usbhid.quirks: comma separated 0xVENDOR:0xPRODUCT:0xQUIRKS entries.
+  if [ -n "$usbhid_quirks" ] &&
+    ! [[ "$usbhid_quirks" =~ ^0x[0-9A-Fa-f]{4}:0x[0-9A-Fa-f]{4}:0x[0-9A-Fa-f]{1,8}(,0x[0-9A-Fa-f]{4}:0x[0-9A-Fa-f]{4}:0x[0-9A-Fa-f]{1,8})*$ ]]; then
+    fail_option "kiosk_usbhid_quirks '$usbhid_quirks' must look like 0x1234:0x5678:0x40 (comma separated)"
+  fi
 
   case "$homepage_url" in
     http://* | https://*) ;;
@@ -170,6 +182,7 @@ generate_config() {
   chmod 600 "$CONFIG_FILE"
 
   local homepage_url rotation wifi_country wifi_ssid wifi_psk ssh_enable ssh_authorized_key passhash
+  local touch_bridge usbhid_quirks
   homepage_url=$(read_option kiosk_homepage_url)
   rotation=$(read_option kiosk_rotation)
   wifi_country=$(read_option kiosk_wifi_country | tr '[:lower:]' '[:upper:]')
@@ -178,9 +191,11 @@ generate_config() {
   ssh_enable=$(read_option kiosk_ssh_enable)
   ssh_authorized_key=$(read_option kiosk_ssh_authorized_key)
   passhash=$(read_option device_user1passhash)
+  touch_bridge=$(read_option kiosk_touch_bridge)
+  usbhid_quirks=$(read_option kiosk_usbhid_quirks)
 
   validate_options "${homepage_url:-https://}" "${rotation:-normal}" "${ssh_enable:-1}" \
-    "${wifi_country:-US}" "$wifi_ssid" "$wifi_psk"
+    "${wifi_country:-US}" "$wifi_ssid" "$wifi_psk" "${touch_bridge:-auto}" "$usbhid_quirks"
 
   [ -n "$homepage_url" ] && set_kiosk_key homepage_url "$homepage_url"
   [ -n "$rotation" ] && set_kiosk_key rotation "$rotation"
@@ -189,6 +204,8 @@ generate_config() {
   set_kiosk_key wifi_ssid "$wifi_ssid"
   set_kiosk_key wifi_psk "$wifi_psk"
   set_kiosk_key ssh_authorized_key "$ssh_authorized_key"
+  [ -n "$touch_bridge" ] && set_kiosk_key touch_bridge "$touch_bridge"
+  set_kiosk_key usbhid_quirks "$usbhid_quirks"
 
   if [ -n "$passhash" ]; then
     local replacement

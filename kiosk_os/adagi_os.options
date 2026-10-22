@@ -16,6 +16,14 @@ kiosk_wifi_country=US
 kiosk_wifi_ssid=
 kiosk_wifi_psk=
 
+# Touch foils / IR frames that enumerate as a USB mouse: bridge them to a
+# touchscreen. auto (default) | force (even if a touch interface exists) | off
+kiosk_touch_bridge=auto
+
+# Optional usbhid.quirks kernel parameter (see kiosk-input-diag on the device),
+# e.g. 0x1234:0x5678:0x40 to split a device that hides its touch interface.
+kiosk_usbhid_quirks=
+
 # SSH on first boot (1=enabled, 0=disabled)
 kiosk_ssh_enable=1
 

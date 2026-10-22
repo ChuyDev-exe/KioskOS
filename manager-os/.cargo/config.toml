@@ -1,0 +1,9 @@
+# Cross-compiling the service for the Raspberry Pi (aarch64) from an x86_64
+# host (GitHub runners, Intel machines): without this, cargo links with the
+# host `cc` and the link fails ("--fix-cortex-a53-843419 is only supported on
+# AArch64"). Install the linker with: apt-get install gcc-aarch64-linux-gnu
+#
+# cargo-zigbuild sets its own linker through the environment, which takes
+# precedence over this file.
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"

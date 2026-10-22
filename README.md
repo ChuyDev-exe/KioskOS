@@ -223,6 +223,29 @@ curl -s http://<pi-ip>:8080/scan_wifi
 
 ---
 
+## Touch foils and IR touch frames
+
+Many touch foils and infrared touch frames enumerate as a USB **mouse** with absolute
+coordinates (their factory "mouse mode"). libinput then treats them as a pointer: dragging
+selects text instead of scrolling, the touch rotation does not apply and touch-only behaviour
+never triggers.
+
+KioskOS fixes this automatically with a **touch bridge**: a udev rule starts
+`kiosk-touch-bridge@eventN.service` for every USB mouse/tablet; the bridge (a subcommand of the
+manager binary) exits at once for regular relative mice and, for an absolute mouse, grabs it and
+re-emits it as a single-touch touchscreen (`BTN_LEFT` → `BTN_TOUCH`). Real touchscreens are never
+touched, and in `auto` mode a device that already exposes a touchscreen interface is skipped.
+
+| Option | Values | |
+|--------|--------|---|
+| `kiosk_touch_bridge` | `auto` (default), `force`, `off` | `force` also bridges devices that expose a touch interface that does not work |
+| `kiosk_usbhid_quirks` | `0xVVVV:0xPPPP:0xQQ[,…]` | kernel `usbhid.quirks`, e.g. `0x40` (`HID_QUIRK_MULTI_INPUT`) splits a device that hides its touch collection |
+
+On the device, `sudo kiosk-input-diag` shows how every input is detected (USB id, driver,
+`MOUSE`/`TOUCHSCREEN`, bridge status) and `sudo evtest /dev/input/eventN` the raw events. When
+the controller supports it, switching it to "HID multitouch" with the vendor configuration tool
+is still the best fix (multi-finger gestures; the bridge is single touch).
+
 ## Troubleshooting
 
 | Symptom | Check |

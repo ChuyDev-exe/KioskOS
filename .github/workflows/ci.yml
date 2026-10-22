@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      # Cross-linker for the aarch64 release build. No C cross-compiler is needed:
-      # the service has no C dependencies (compression stack is disabled in Cargo.toml).
+      # Cross linker for the aarch64 release build (manager-os/.cargo/config.toml
+      # tells cargo to use it). The service itself has no C dependencies.
       - name: Install the aarch64 cross linker
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - uses: dtolnay/rust-toolchain@stable
@@ -46,6 +46,8 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # The Rust project (Cargo.toml / Cargo.lock) lives in manager-os/.
+          working-directory: manager-os
 
   shell:
     name: Shell and YAML

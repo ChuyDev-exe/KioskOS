@@ -1,0 +1,24 @@
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -41,13 +41,16 @@
+         run: cd manager-os && cargo test
+       - name: cargo build (aarch64 release)
+         run: cd manager-os && cargo build --release --target aarch64-unknown-linux-gnu
++      # cargo-audit directly instead of rustsec/audit-check: the action publishes
++      # a check run, which needs `checks: write` and fails on pull requests from
++      # forks ("Resource not accessible by integration"). The job fails on any
++      # vulnerability, yanked or unsound crate, and the log shows the details.
+       # Uses the committed Cargo.lock, so it audits exactly what is built.
+-      - name: cargo audit
+-        uses: rustsec/audit-check@v2
++      - uses: taiki-e/install-action@v2
+         with:
+-          token: ${{ secrets.GITHUB_TOKEN }}
+-          # The Rust project (Cargo.toml / Cargo.lock) lives in manager-os/.
+-          working-directory: manager-os
++          tool: cargo-audit
++      - name: cargo audit
++        run: cd manager-os && cargo audit --deny warnings
+ 
+   shell:
+     name: Shell and YAML

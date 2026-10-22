@@ -10,9 +10,13 @@
 # intermediate artifacts survive between builds instead of being downloaded
 # and recompiled every time.
 
-FROM rust:1.86.0-slim-bookworm AS builder
+FROM rust:1.90.0-slim-bookworm AS builder
+# gcc-aarch64-linux-gnu only *recommends* the aarch64 C runtime: with
+# --no-install-recommends, libc6-dev-arm64-cross (Scrt1.o, crti.o, libc) must
+# be listed explicitly or the cross link fails on x86_64 hosts.
 RUN apt-get update && apt-get install --no-install-recommends -y \
       gcc-aarch64-linux-gnu \
+      libc6-dev-arm64-cross \
   && rm -rf /var/lib/apt/lists/* \
   && rustup target add aarch64-unknown-linux-gnu
 # On an x86_64 build host cargo must link with the aarch64 cross linker (the

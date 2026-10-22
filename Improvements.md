@@ -52,7 +52,7 @@ Terse, actionable backlog. Paths relative to repo root. Each item = problem → 
 - `API_TOKEN`: the wizard keeps working (same-origin on loopback); other clients need the token
   (constant-time compare). Before, enabling it broke the wizard.
 - Secrets out of git: `adagi_os.local.options` (ignored) overrides `adagi_os.options`; build.sh
-  generates `config/adagi_os.generated.yaml` (ignored, 0600) and builds that. The tracked yaml and
+  generates `config/adagi_os.generated.yaml` (ignored; 0644 because the build container reads it as another user) and builds that. The tracked yaml and
   options no longer contain the Wi-Fi password; unused `DEVICE_USER1PASS` removed.
 - Homepage URL injected into the redirect templates as an escaped JS string.
 - PENDING: `device.user1passhash` and the old `DEVICE_USER1PASS=kiosk_manager` are in the git

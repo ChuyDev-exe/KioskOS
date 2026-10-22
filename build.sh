@@ -179,7 +179,12 @@ generate_config() {
     exit 1
   fi
   cp "$BASE_CONFIG_FILE" "$CONFIG_FILE"
-  chmod 600 "$CONFIG_FILE"
+  # World-readable on purpose: rpi-image-gen reads it inside the container as
+  # another user (imagegen, uid 4000) through the bind mount, so 0600 fails
+  # with "Permission denied" on Linux hosts (CI). The file is git-ignored,
+  # like adagi_os.local.options, which holds the same values. cp keeps the
+  # mode of an existing file, hence the explicit chmod.
+  chmod 644 "$CONFIG_FILE"
 
   local homepage_url rotation wifi_country wifi_ssid wifi_psk ssh_enable ssh_authorized_key passhash
   local touch_bridge usbhid_quirks

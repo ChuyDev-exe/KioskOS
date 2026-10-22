@@ -2,6 +2,9 @@
 name = "wifi_setup_service"
 version = "0.1.0"
 edition = "2021"
+# Matches the toolchain of Dockerfile.manager: cargo update only picks
+# dependency versions that still build with it.
+rust-version = "1.90"
 
 [dependencies]
 # default-features disabled to drop the compression stack (zstd/brotli/gzip).

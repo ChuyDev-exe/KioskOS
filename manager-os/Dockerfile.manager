@@ -1,32 +1,31 @@
-# Multi-stage build with cargo-chef for dep caching.
-# Changing Cargo.toml → only deps rebuild; changing src/ → only final compile.
-FROM rust:1.84.1-bookworm AS base
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage build with BuildKit cache mounts.
+#
+# The service has no C dependencies: actix-web runs with default-features
+# disabled and the resulting binary only links against libc, libgcc_s and
+# libm. Only the aarch64 cross linker is required, not a full toolchain.
+#
+# The registry and target directories are cache mounts, so dependencies and
+# intermediate artifacts survive between builds instead of being downloaded
+# and recompiled every time.
+
+FROM rust:1.86.0-slim-bookworm AS builder
 RUN apt-get update && apt-get install --no-install-recommends -y \
-    pkg-config libglib2.0-dev libssl-dev libudev-dev git \
-    && rm -rf /var/lib/apt/lists/*
-RUN rustup target add aarch64-unknown-linux-gnu
-
-FROM base AS chef
-RUN cargo install cargo-chef
-
-FROM chef AS planner
+      gcc-aarch64-linux-gnu \
+  && rm -rf /var/lib/apt/lists/* \
+  && rustup target add aarch64-unknown-linux-gnu
 WORKDIR /app
-COPY Cargo.toml Cargo.lock* ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo chef prepare --recipe-path recipe.json
-
-FROM chef AS cacher
-WORKDIR /app
-COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --target aarch64-unknown-linux-gnu --recipe-path recipe.json
-
-FROM chef AS builder
-WORKDIR /app
-COPY --from=cacher /app/target /app/target
-COPY --from=cacher /usr/local/cargo /usr/local/cargo
 COPY Cargo.toml Cargo.lock* ./
 COPY src ./src
-RUN cargo build --release --target aarch64-unknown-linux-gnu
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
+    cargo build --release --target aarch64-unknown-linux-gnu \
+    && cp /app/target/aarch64-unknown-linux-gnu/release/wifi_setup_service /wifi_setup_service
 
+# The final image is only used as a carrier for the binary
+# (docker create + docker cp), it is never executed.
+# The CMD is required so `docker create` works without an explicit command.
 FROM scratch
-COPY --from=builder /app/target/aarch64-unknown-linux-gnu/release/wifi_setup_service /wifi_setup_service
+COPY --from=builder /wifi_setup_service /wifi_setup_service
+CMD ["/wifi_setup_service"]

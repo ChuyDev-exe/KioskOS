@@ -89,5 +89,5 @@ journalctl -u wpa_supplicant@wlan0.service -f
 | Button stays red after config | WiFi takes 5-15s | Progressive retry (40s) in `script.js` |
 | `Error reading index.html from /static/index.html` | `STATIC_PATH` not set | `STATIC_PATH=$(pwd)/static cargo run` |
 | WiFi not persisting after reboot | `wpa_supplicant@wlan0` not enabled | Check `customize-kiosk` enables the unit |
-| Firefox `--start-maximized` not `--kiosk` | WiFi not up at kiosk start | Verify `check_wifi()` bash returns 0 |
+| Keyboard covers the page | cog launched fullscreen | Keep `COG_PLATFORM_WL_VIEW_MAXIMIZE=1` |
 | No internet with WiFi connected | Ping failing | Check routing & DNS manually |

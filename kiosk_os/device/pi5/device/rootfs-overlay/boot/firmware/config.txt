@@ -30,9 +30,8 @@ framebuffer_ignore_alpha=1
 # Use the kernel's default instead.
 disable_fw_kms_setup=1
 
-# Match intended display rotation. Valid values: 0 (0°), 1 (90°), 2 (180°), 3 (270°)
-# This mirrors the existing setting used for the pi4 overlay.
-display_hdmi_rotate=3
+# Display rotation is applied at runtime by wlr-randr (kiosk.rotation), the
+# same as on the other boards. A firmware rotation here would stack on top.
 
 # Disable compensation for displays with overscan
 disable_overscan=1
@@ -44,8 +43,11 @@ arm_boost=1
 #  
 usb_max_current_enable=1
 
-disable_splash=0
+disable_splash=1
 boot_delay=0
+
+# HW watchdog — frozen Pi self-reboots after 15s
+dtparam=watchdog=on
 
 [cm5]
 dtoverlay=dwc2,dr_mode=host

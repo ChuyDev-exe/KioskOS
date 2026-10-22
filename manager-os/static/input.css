@@ -1,3 +1,166 @@
 @tailwind base;
-@tailwind utilities;
 @tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background: theme("colors.accent");
+    color: theme("colors.bg");
+  }
+
+  input {
+    @apply w-full rounded border border-line bg-raised px-3 py-3 text-sm text-text outline-none transition-colors focus:border-accent;
+    min-height: 44px;
+  }
+}
+
+@layer components {
+  /* ── Iconography: inline SVG only, stroked with currentColor ───────── */
+  .icon {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    flex: none;
+  }
+
+  /* ── Chrome ────────────────────────────────────────────────────────── */
+  .statusbar {
+    @apply flex items-center justify-between gap-4 border-b border-line bg-surface px-4;
+    height: var(--statusbar-h);
+  }
+
+  .footer {
+    @apply flex items-center gap-2 border-t border-line bg-surface px-4 text-xs text-muted;
+    height: var(--footer-h);
+  }
+
+  .sidebar {
+    @apply flex flex-col border-r border-line bg-surface;
+    width: var(--sidebar-w);
+    flex: none;
+  }
+
+  .content {
+    @apply flex-1 overflow-y-auto p-6;
+    min-width: 0;
+  }
+
+  .view-header {
+    @apply mb-5 flex flex-col gap-1;
+  }
+
+  .nav-item {
+    @apply flex w-full items-center gap-3 rounded border border-l-2 border-l-transparent border-t-transparent border-r-transparent border-b-transparent px-3 py-3 text-left text-sm text-muted transition-colors;
+    min-height: 44px;
+  }
+
+  .nav-item:hover {
+    @apply bg-raised text-text;
+  }
+
+  .nav-item[aria-current="page"] {
+    @apply border-line bg-raised text-text;
+    border-left-color: theme("colors.accent");
+  }
+
+  .nav-item[aria-current="page"] .icon {
+    color: theme("colors.accent");
+  }
+
+  /* ── Surfaces ──────────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-lg border border-line bg-surface p-5;
+  }
+
+  .card-title {
+    @apply text-sm font-medium text-muted;
+  }
+
+  .card-value {
+    @apply mt-2 text-lg font-medium;
+  }
+
+  .card-note {
+    @apply mt-1 text-sm text-muted;
+  }
+
+  /* ── Controls ──────────────────────────────────────────────────────── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded bg-accent px-4 py-3 text-sm font-medium text-white transition-opacity hover:opacity-90;
+    min-height: 44px;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded border border-line px-4 py-3 text-sm font-medium text-text transition-colors hover:bg-raised;
+    min-height: 44px;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded px-4 py-3 text-sm font-medium text-muted transition-colors hover:bg-raised hover:text-text;
+    min-height: 44px;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded bg-danger px-4 py-3 text-sm font-medium text-white transition-opacity hover:opacity-90;
+    min-height: 44px;
+  }
+
+  .btn-ghost-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded border border-line px-3 py-3 text-sm font-medium text-danger transition-colors hover:bg-raised;
+    min-height: 44px;
+  }
+
+  .icon-button {
+    @apply inline-flex items-center justify-center rounded p-2 text-muted transition-colors hover:bg-raised hover:text-text;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .field {
+    @apply flex flex-col gap-2;
+  }
+
+  .field-label {
+    @apply text-sm text-muted;
+  }
+
+  /* ── Modals ────────────────────────────────────────────────────────── */
+  .modal {
+    @apply w-full max-w-md rounded-lg border border-line bg-surface p-0 text-text;
+    margin: auto;
+  }
+
+  .modal-body {
+    @apply flex flex-col gap-4 p-5;
+  }
+
+  .modal-header {
+    @apply flex items-center justify-between gap-4;
+  }
+
+  .modal-footer {
+    @apply flex justify-end gap-3 pt-1;
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "kioskos-manager-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KioskOS management service frontend assets",
+  "scripts": {
+    "css": "cd static && tailwindcss -i input.css -o tailwind-precompiled.css",
+    "css:watch": "cd static && tailwindcss -i input.css -o tailwind-precompiled.css --watch",
+    "build": "npm run css && node scripts/build-frontend.mjs",
+    "build:min": "node scripts/build-frontend.mjs",
+    "format": "prettier --write \"static/**/*.{js,css,html}\"",
+    "format:check": "prettier --check \"static/**/*.{js,css,html}\""
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "html-minifier-terser": "7.2.0",
+    "prettier": "3.3.3",
+    "tailwindcss": "3.4.17"
+  }
+}

@@ -9,49 +9,207 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   rust:
+    name: Rust (fmt, clippy, test, build, audit)
     runs-on: ubuntu-latest
-    # Cross-linker for the aarch64 release build. No C cross-compiler is needed:
-    # the service has no C dependencies (compression stack is disabled in Cargo.toml).
-    env:
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      # Cross-linker for the aarch64 release build. No C cross-compiler is needed:
+      # the service has no C dependencies (compression stack is disabled in Cargo.toml).
+      - name: Install the aarch64 cross linker
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
           components: clippy, rustfmt
-      - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: manager-os
-      - run: cd manager-os && cargo fmt --check
-      - run: cd manager-os && cargo clippy --target aarch64-unknown-linux-gnu -- -D warnings
-      - run: cd manager-os && cargo build --release --target aarch64-unknown-linux-gnu
-      - run: cd manager-os && cargo test
+      - name: cargo fmt
+        run: cd manager-os && cargo fmt --check
+      - name: cargo clippy
+        run: cd manager-os && cargo clippy --all-targets --target aarch64-unknown-linux-gnu -- -D warnings
+      - name: cargo test
+        run: cd manager-os && cargo test
+      - name: cargo build (aarch64 release)
+        run: cd manager-os && cargo build --release --target aarch64-unknown-linux-gnu
+      # Uses the committed Cargo.lock, so it audits exactly what is built.
+      - name: cargo audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   shell:
+    name: Shell and YAML
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: pip install yamllint
-      - run: shellcheck build.sh scripts/*.sh kiosk_os/image/mbr/simple_dual/kiosk-conf/kiosk-launch.sh.tpl kiosk_os/image/mbr/simple_dual/kiosk-conf/labwc-autostart.sh.tpl
-      - run: yamllint kiosk_os/**/*.yaml
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: bash syntax
+        run: |
+          set -euo pipefail
+          for f in build.sh scripts/*.sh manager-os/run-local.sh; do
+            bash -n "$f"
+          done
+      - name: shellcheck
+        run: |
+          shellcheck \
+            build.sh \
+            scripts/*.sh \
+            manager-os/run-local.sh \
+            kiosk_os/image/mbr/simple_dual/kiosk-conf/kiosk-launch.sh.tpl \
+            kiosk_os/image/mbr/simple_dual/kiosk-conf/labwc-autostart.sh.tpl
+      - name: yamllint
+        run: |
+          pip install --quiet yamllint
+          # find() instead of a glob: bash does not expand ** recursively by default.
+          yamllint -c .yamllint $(find kiosk_os -name '*.yaml' | sort)
 
   frontend:
+    name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: npx --yes prettier --check "manager-os/static/**/*.{js,css,html}"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: manager-os/package-lock.json
+      - name: Install the frontend tooling
+        run: npm ci --prefix manager-os
+      - name: prettier
+        run: npx --prefix manager-os prettier --check "manager-os/static/**/*.{js,css,html}"
+      - name: The Tailwind bundle is up to date
+        run: |
+          cd manager-os
+          npm run --silent css
+          if ! git diff --exit-code -- static/tailwind-precompiled.css; then
+            echo "::error::static/tailwind-precompiled.css is out of date. Run 'cd manager-os && npm run css' and commit the result."
+            exit 1
+          fi
+      # Minified build used by the image: also fails if a placeholder that the
+      # service fills in ({{KIOSK_HOMEPAGE_URL}}) is lost.
+      - name: Minified frontend build
+        run: npm run --prefix manager-os --silent build:min
 
-  audit:
+      - name: No external assets (the wizard runs offline)
+        run: |
+          set -euo pipefail
+          # Look for actual resource loads, not for URLs in comments.
+          if grep -rnE '(src|href)[[:space:]]*=[[:space:]]*["'"'"']https?://|@import[[:space:]]+(url\()?[[:space:]]*["'"'"']?https?://|url\([[:space:]]*["'"'"']?https?://' \
+              manager-os/static \
+              --include='*.html' --include='*.css' --include='*.js' \
+              | grep -v '{{KIOSK_HOMEPAGE_URL}}' \
+              | grep -v 'w3.org/2000/svg'; then
+            echo "::error::External resource found in the static assets: the setup wizard must work offline."
+            exit 1
+          fi
+
+  smoke:
+    name: Service smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
+      - uses: Swatinem/rust-cache@v2
         with:
-          tool: cargo-audit
-      - run: cd manager-os && cargo generate-lockfile
-      - run: cd manager-os && cargo audit
+          workspaces: manager-os
+      - name: Start the service and exercise the endpoints
+        run: |
+          set -euo pipefail
+          cd manager-os
+          STATIC_PATH="$PWD/static" cargo run --quiet &
+          SERVICE_PID=$!
+          trap 'kill $SERVICE_PID 2>/dev/null || true' EXIT
+
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8080/health >/dev/null; then break; fi
+            sleep 1
+          done
+
+          curl -sf http://127.0.0.1:8080/health | grep -q '"version"'
+          curl -sf http://127.0.0.1:8080/check_wifi | grep -q '"connected"'
+          curl -sf http://127.0.0.1:8080/ | grep -qi '<!doctype html>'
+          curl -sf http://127.0.0.1:8080/static/script.js | grep -q 'DOMContentLoaded'
+          curl -sf http://127.0.0.1:8080/static/style.css | grep -q 'statusbar'
+          echo "All endpoints answered correctly."
+
+  image:
+    name: Image build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [shell, frontend, rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      # The gha cache backend needs the buildx (docker-container) driver: the
+      # default docker driver fails with "Cache export is not supported".
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Detect image-affecting changes
+        id: changes
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BASE="${{ github.event.before }}"
+          else
+            BASE="${{ github.event.pull_request.base.sha }}"
+          fi
+          if ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE=""
+          fi
+          if [ -z "$BASE" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE"
+          if git diff --name-only "$BASE" "${{ github.sha }}" \
+              | grep -qE '^(kiosk_os/|Dockerfile|docker-compose\.yml|build\.sh|manager-os/)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No image-affecting changes, skipping the image build."
+          fi
+
+      - name: Cache the build images
+        if: steps.changes.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: adagi_os:latest
+          cache-from: type=gha,scope=adagi-os
+          cache-to: type=gha,mode=min,scope=adagi-os
+
+      - name: Build the image
+        if: steps.changes.outputs.changed == 'true'
+        # The checkout makes the Dockerfile look newer than the image loaded
+        # above: reuse it instead of rebuilding without cache.
+        env:
+          KIOSK_REUSE_DOCKER_IMAGES: '1'
+        run: ./build.sh
+
+      - name: Verify the image contents
+        if: steps.changes.outputs.changed == 'true'
+        run: ./scripts/verify-image.sh
+
+      - name: Upload the image
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: adagi_os-image
+          path: deploy/adagi_os.img
+          retention-days: 7
+          if-no-files-found: error

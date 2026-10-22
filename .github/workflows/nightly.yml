@@ -3,15 +3,73 @@ name: Nightly
 on:
   schedule:
     - cron: '0 6 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: nightly
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build:
+    name: Build and publish the nightly image
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
-      - run: ./build.sh
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Cache the build images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: adagi_os:latest
+          cache-from: type=gha,scope=adagi-os
+          cache-to: type=gha,mode=min,scope=adagi-os
+
+      - name: Build the image
+        env:
+          KIOSK_REUSE_DOCKER_IMAGES: '1'
+        run: ./build.sh
+
+      - name: Verify the image contents
+        run: ./scripts/verify-image.sh
+
+      - name: Upload the image and the SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: adagi_os-nightly
+          path: |
+            deploy/adagi_os.img
+            deploy/adagi_os.sbom
+          retention-days: 14
+          if-no-files-found: error
+
+      # The nightly channel is optional: it is only published when the R2
+      # credentials are configured in the repository secrets.
+      - name: Publish to the nightly channel
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET }}
+          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_ACCESS_KEY_ID}" ] || [ -z "${AWS_ENDPOINT_URL}" ]; then
+            echo "R2 credentials are not configured, skipping the publication."
+            exit 0
+          fi
+          VERSION="$(date -u +%Y%m%d-%H%M%S)"
+          aws s3 cp deploy/adagi_os.img \
+            "s3://mcu-ota-dev-firmware/firmware/rpi/kiosk/nightly/${VERSION}/rootfs.img" \
+            --endpoint-url "${AWS_ENDPOINT_URL}"
+          jq -n --arg v "$VERSION" \
+            '{version:$v,family:"rpi",app:"kiosk",channel:"nightly",
+              url:"/firmware/rpi/kiosk/nightly/\($v)/rootfs.img"}' \
+            > latest-nightly.json
+          aws s3 cp latest-nightly.json \
+            "s3://mcu-ota-dev-firmware/manifest/rpi/kiosk/nightly/latest.json" \
+            --endpoint-url "${AWS_ENDPOINT_URL}"

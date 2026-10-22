@@ -8,12 +8,15 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
   image:
+    name: Build, sign and publish
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -27,7 +30,7 @@ jobs:
           load: true
           tags: manager-os:latest
           cache-from: type=gha,scope=manager-os
-          cache-to: type=gha,mode=max,scope=manager-os
+          cache-to: type=gha,mode=min,scope=manager-os
 
       - name: Cache and build rpi-image-gen Docker image
         uses: docker/build-push-action@v6
@@ -36,19 +39,43 @@ jobs:
           load: true
           tags: adagi_os:latest
           cache-from: type=gha,scope=adagi-os
-          cache-to: type=gha,mode=max,scope=adagi-os
+          cache-to: type=gha,mode=min,scope=adagi-os
 
-      - name: Build image (uses cached Docker layers)
+      # build.sh reuses the images built above (KIOSK_REUSE_DOCKER_IMAGES) and
+      # regenerates the image itself.
+      - name: Build image
+        env:
+          KIOSK_REUSE_DOCKER_IMAGES: '1'
         run: ./build.sh
 
+      - name: Verify the image contents
+        run: ./scripts/verify-image.sh
+
       - name: Compress
-        run: xz -T0 deploy/adagi_os.img
+        run: xz -T0 --check=crc32 deploy/adagi_os.img
 
       - name: Install minisign
         run: sudo apt-get update && sudo apt-get install -y minisign
 
       - name: Sign
-        run: minisign -Sm deploy/adagi_os.img.xz -s <(echo "${{ secrets.MINISIGN_KEY }}")
+        env:
+          MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MINISIGN_KEY" ]; then
+            echo "::warning::MINISIGN_KEY is not configured, the image will not be signed"
+            exit 0
+          fi
+          printf '%s' "$MINISIGN_KEY" > minisign.key
+          chmod 600 minisign.key
+          minisign -S -s minisign.key \
+            -m deploy/adagi_os.img.xz \
+            -x deploy/adagi_os.img.xz.minisig
+          rm -f minisign.key
+          # Self-check: a signature that does not verify is a broken release.
+          minisign -V -p minisign.key.pub \
+            -m deploy/adagi_os.img.xz \
+            -x deploy/adagi_os.img.xz.minisig
 
       - name: Determine channel
         id: channel
@@ -63,36 +90,63 @@ jobs:
           echo "version=$TAG"   >> "$GITHUB_OUTPUT"
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
 
-      - name: Checksum + manifest
+      - name: Checksum and manifest
+        env:
+          MINISIGN_PUBKEY: ${{ secrets.MINISIGN_PUBKEY }}
         run: |
+          set -euo pipefail
           VER="${{ steps.channel.outputs.version }}"
           CHANNEL="${{ steps.channel.outputs.channel }}"
           SHA=$(sha256sum deploy/adagi_os.img.xz | cut -d' ' -f1)
+          SIG=""
+          if [ -f deploy/adagi_os.img.xz.minisig ]; then
+            SIG="deploy/adagi_os.img.xz.minisig"
+          fi
           jq -n \
             --arg v "$VER" \
             --arg s "$SHA" \
             --arg ch "$CHANNEL" \
+            --arg pk "$MINISIGN_PUBKEY" \
+            --arg sig "$SIG" \
             '{version:$v,family:"rpi",app:"kiosk",channel:$ch,
-              url:"/firmware/rpi/kiosk/\($ch)/\($v)/rootfs.img.xz",sha256:$s}' \
+              url:"/firmware/rpi/kiosk/\($ch)/\($v)/rootfs.img.xz",sha256:$s,
+              signature:(if $sig == "" then null else $sig end),
+              minisign_pubkey:(if $pk == "" then null else $pk end)}' \
             > latest.json
+          cat latest.json
 
       - name: Publish to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT }}
         run: |
+          set -euo pipefail
+          if [ -z "${AWS_ACCESS_KEY_ID}" ] || [ -z "${AWS_ENDPOINT_URL}" ]; then
+            echo "::warning::R2 credentials are not configured, skipping the publication"
+            exit 0
+          fi
           VER="${{ steps.channel.outputs.version }}"
           CHANNEL="${{ steps.channel.outputs.channel }}"
-          aws s3 cp deploy/adagi_os.img.xz \
-            "s3://mcu-ota-dev-firmware/firmware/rpi/kiosk/${CHANNEL}/${VER}/rootfs.img.xz" \
-            --endpoint-url "${R2_ENDPOINT}"
+          BASE="s3://mcu-ota-dev-firmware/firmware/rpi/kiosk/${CHANNEL}/${VER}"
+          aws s3 cp deploy/adagi_os.img.xz "${BASE}/rootfs.img.xz" --endpoint-url "${AWS_ENDPOINT_URL}"
+          if [ -f deploy/adagi_os.img.xz.minisig ]; then
+            aws s3 cp deploy/adagi_os.img.xz.minisig "${BASE}/rootfs.img.xz.minisig" --endpoint-url "${AWS_ENDPOINT_URL}"
+          fi
           aws s3 cp latest.json \
             "s3://mcu-ota-dev-firmware/manifest/rpi/kiosk/${CHANNEL}/latest.json" \
-            --endpoint-url "${R2_ENDPOINT}"
+            --endpoint-url "${AWS_ENDPOINT_URL}"
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            deploy/adagi_os.img.xz*
+            deploy/adagi_os.img.xz
+            deploy/adagi_os.img.xz.minisig
             deploy/*.sbom
+          fail_on_unmatched_files: false
+          body: |
+            KioskOS ${{ steps.channel.outputs.version }} (${{ steps.channel.outputs.channel }})
+
+            * Image: `adagi_os.img.xz`
+            * SHA256: see `latest.json`
+            * Verify the signature with minisign and the public key from `latest.json`.

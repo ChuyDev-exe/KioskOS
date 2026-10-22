@@ -1,7 +1,0 @@
----
-name: nodejs
-mmdebstrap:
-  packages:
-    - nodejs
-    - npm
-  install-recommends: false

@@ -1,1 +1,9 @@
 /manager-os/target/
+/manager-os/node_modules/
+/scripts/dev.env
+# Private build options and the config generated from them (secrets)
+/kiosk_os/adagi_os.local.options
+/kiosk_os/config/adagi_os.generated.yaml
+.DS_Store
+# Minified frontend build output (npm run build)
+/manager-os/dist/

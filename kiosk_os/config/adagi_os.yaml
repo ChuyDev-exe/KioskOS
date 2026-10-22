@@ -1,24 +1,46 @@
 ---
-# KioskOS – main build configuration for Raspberry Pi 3
-# Edit this file to change kiosk URL, rotation, and credentials.
-# Then rebuild with: ./build.sh
+# KioskOS – main build configuration.
+# device.layer selects the board (e.g. rpi3, rpi4, rpi5); the matching boot
+# overlay under kiosk_os/device/ is installed automatically.
+# Kiosk options (URL, rotation, Wi-Fi) come from kiosk_os/adagi_os.options and
+# the private kiosk_os/adagi_os.local.options. Rebuild with: ./build.sh
 
 device:
-  layer: rpi3
+  layer: rpi4
   user1: adagio
   user1passhash: "$6$PLWPx8PFItGOcHnX$LnMk/iguhWmJ1nXY8LsOO9mqSNtt3dNIOM/CA//WyYldulQG8SEB4brz.jNQNnCR7xTuSiTWl6YlAiJckBIA01"
 
 image:
   layer: image-rpios
   boot_part_size: 125%
-  root_part_size: 125%
+  # The root partition holds the generated filesystem plus headroom for the
+  # writable root (logs, caches, wifi config). 100% == 1.1 GB and the current
+  # content uses ~1.11 GB, so 115% leaves ~170 MB free.
+  root_part_size: 115%
   name: adagi_os
 
 layer:
   base: bookworm-minbase
   app: adagi-kiosk
 
+sys:
+  # Host-side APT download cache. The directory is bind-mounted from the
+  # docker volume "image-work" (see docker-compose.yml), so the .deb files
+  # survive between builds and repeat builds only fetch what changed.
+  # NOTE: the path must exist inside the container; build.sh creates it
+  # before invoking rpi-image-gen.
+  apt_cachedir: /home/imagegen/work/cache/apt
+  # Keep the downloaded packages in the cache. APT::Get::Purge would delete
+  # them right after installing them, which empties the cache above and
+  # defeats its purpose. The .deb files are removed from the final image by
+  # the cleanup hook in layer/adagi-kiosk.yaml.
+  apt_get_purge: false
+
+# Kiosk settings. build.sh overwrites them from adagi_os.options and
+# adagi_os.local.options into config/adagi_os.generated.yaml (ignored by git),
+# so secrets (Wi-Fi password, SSH key) never land in this tracked file.
 kiosk:
-  homepage_url: https://jesusvelez.xyz/
+  homepage_url: "https://berel.com/"
   rotation: "90"
+  wifi_country: "US"
   ssh_enable: "1"

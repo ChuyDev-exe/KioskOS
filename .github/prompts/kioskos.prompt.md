@@ -174,7 +174,7 @@ cargo build --target aarch64-unknown-linux-gnu
 | `manager-os/static/style.css` | Estilos + animaciones |
 | `kiosk_os/adagi_os.options` | Variables de configuración del kiosco |
 | `kiosk_os/image/mbr/simple_dual/bdebstrap/customize-kiosk` | Hook principal de imagen |
-| `kiosk_os/image/mbr/simple_dual/kiosk-conf/kiosk-launch.sh.tpl` | Lanzador de Firefox |
+| `kiosk_os/image/mbr/simple_dual/kiosk-conf/kiosk-launch.sh.tpl` | Lanzador de WPE WebKit (cog) |
 | `kiosk_os/image/mbr/simple_dual/kiosk-conf/wifi_setup.service.tpl` | Servicio systemd del servidor |
 | `kiosk_os/image/mbr/simple_dual/device/rootfs-overlay/etc/systemd/system/wpa_supplicant@wlan0.service` | Servicio wpa_supplicant |
 | `build.sh` | Pipeline de build completo |

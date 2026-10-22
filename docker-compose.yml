@@ -5,23 +5,29 @@ services:
         stdin_open: true
         tty: true
         image: adagi_os:latest
+        # Do not re-check the registry on every build (saves a few seconds and
+        # keeps builds working offline once the base image is present).
+        pull_policy: missing
         volumes:
             - ./kiosk_os:/home/imagegen/kiosk_os
-    
+            # Persistent rpi-image-gen workroot. Keeps the host support
+            # packages (bootstrap_build_tools) and the APT download cache
+            # between builds instead of recompiling/discarding them every
+            # time. Biggest single build-time win (~3-6 min on warm cache).
+            # Reset with: docker volume rm kioskos_image-work
+            - image-work:/home/imagegen/work
+
     manager-os:
         build:
             context: ./manager-os
             dockerfile: Dockerfile.manager
         stdin_open: true
         tty: true
+        # Only a carrier for the binary (FROM scratch): build.sh extracts it
+        # with docker create + docker cp. The cargo caches are BuildKit cache
+        # mounts inside Dockerfile.manager.
         image: manager-os:latest
-        environment:
-            CARGO_TARGET_DIR: /app/target
-        volumes:
-            - ./manager-os:/app
-            - cargo-target:/app/target
-            - cargo-registry:/usr/local/cargo/registry
+        pull_policy: missing
 
 volumes:
-    cargo-target:
-    cargo-registry:
+    image-work:

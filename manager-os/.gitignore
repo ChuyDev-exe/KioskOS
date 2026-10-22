@@ -1,1 +1,1 @@
-Cargo.lock
+# El lockfile de la aplicación (binario) sí se versiona: builds reproducibles.

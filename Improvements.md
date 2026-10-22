@@ -2,6 +2,205 @@
 
 Terse, actionable backlog. Paths relative to repo root. Each item = problem → fix. Pi 3 is target HW (weak CPU, ~1GB RAM, SD storage).
 
+## DONE — minified frontend (esbuild + html-minifier-terser) (2026-10-22)
+- `manager-os/scripts/build-frontend.mjs` (`npm run build`): `static/` → `dist/static/`, same file
+  names. esbuild minifies JS/CSS (target `safari16` ≈ WPE WebKit 2.38), html-minifier-terser the
+  HTML (inline JS with double quotes only). Fails if `{{KIOSK_HOMEPAGE_URL}}` or the doctype is lost.
+  59.5 KiB → 35.2 KiB (-41 %). Not Vite: no npm imports, the Rust service serves the files, and
+  hashed/moved assets would break its templates and the `/static/...` paths.
+- build.sh ships `dist/static` (runs `npm ci` when node_modules is missing; falls back to the
+  sources without Node.js). Build inputs (`input.css`, `tailwind.config.js`) no longer reach the
+  device. `dev-sync-app.sh` deploys the minified build; `run-local.sh` keeps serving `static/`.
+- verify-image.sh asserts the minified frontend; CI (workflow patch) runs `npm run build:min`.
+
+## DONE — critical, security, robustness, build/CI and UI fixes (2026-10-22)
+
+### Wi-Fi (manager-os `src/main.rs` + `layer/adagi-kiosk.yaml`)
+- wpa_supplicant does NOT process escapes inside `ssid="..."`/`psk="..."` (it reads up to the last
+  quote). The old backslash escaping broke every SSID/password with `"` or `\` (verified with the
+  real wpa_supplicant: `Mi "Red"\` was read as 12 bytes instead of 9). The SSID is now written
+  hex-encoded and the passphrase verbatim, both in the service and in the first-boot hook.
+- A failed connection restores the previous `wpa_supplicant-wlan0.conf` (a mistyped password used
+  to drop a working network). Success = associated to the requested SSID + global IPv4.
+- The config is written atomically with mode 0600 (temp + fsync + rename).
+- Dead `nmcli` path removed (NetworkManager is not installed). `dhclient` only runs when
+  systemd-networkd is inactive (networkd already does DHCP: two clients were fighting).
+- A timesyncd failure no longer marks a successful connection as failed.
+- Server-side validation (SSID ≤ 32 bytes, PSK 8-63 printable ASCII or 64 hex), 409 when a
+  connection is already in progress, `/check_wifi` reports `phase` (idle/connecting/connected/failed)
+  and the real error.
+- `kiosk.wifi_country` (default US) replaces the hard-coded `country=US`.
+
+### Security
+- Host check (DNS rebinding) on every request when bound to loopback; mutating endpoints reject a
+  foreign `Origin` (CSRF from the homepage running in the same browser). `/start_kiosk` is POST-only.
+- `API_TOKEN`: the wizard keeps working (same-origin on loopback); other clients need the token
+  (constant-time compare). Before, enabling it broke the wizard.
+- Secrets out of git: `adagi_os.local.options` (ignored) overrides `adagi_os.options`; build.sh
+  generates `config/adagi_os.generated.yaml` (ignored, 0600) and builds that. The tracked yaml and
+  options no longer contain the Wi-Fi password; unused `DEVICE_USER1PASS` removed.
+- Homepage URL injected into the redirect templates as an escaped JS string.
+- PENDING: `device.user1passhash` and the old `DEVICE_USER1PASS=kiosk_manager` are in the git
+  history → rotate the password (`device_user1passhash` in the local options).
+
+### Robustness / performance
+- Connectivity = TCP connect (homepage host, 1.1.1.1:443, 8.8.8.8:53, 2 s) instead of ICMP ping;
+  one probe at a time (no stampede), cache invalidated after a connection attempt.
+- systemd watchdog pinged only while the HTTP server answers `/livez` (abstract sockets supported).
+- `/health` runs on the blocking pool and reports `internet` and the Wi-Fi phase; 2 actix workers.
+- `iw scan` retries on EBUSY and brings the link up; results carry signal (dBm) and security,
+  deduplicated per SSID and sorted by signal.
+
+### Image
+- Boot config chosen by `device.class` (pi3/pi4/pi5) instead of always the Pi 4 one; Pi 5 overlay
+  lost its hard-coded rotation (`display_hdmi_rotate=3`, `fbcon=rotate:3`) and gained the watchdog.
+
+### Build / CI
+- build.sh: background jobs tracked by PID (a failed parallel build used to be ignored), binary
+  rebuilt on Cargo.toml/Cargo.lock changes, `docker exec` on the named container, only artifacts
+  newer than the build start are copied (no stale image from the persistent volume), option
+  validation (URL, rotation, country, SSID/PSK), `KIOSK_REUSE_DOCKER_IMAGES=1` for CI.
+- verify-image.sh: one container for all checks, newest rootfs, new launcher/unit checks.
+- Dockerfile: rpi-image-gen pinned to `a67e556` (master changes its layout format often).
+- docker-compose: unused manager-os bind mounts removed. `dev.env(.example)`: `PI_USER=adagio`.
+- Workflows (applied by hand, `.github/workflows` is write-protected for remote tools):
+  `setup-buildx-action` (gha cache needs it), cache step skipped when nothing changed,
+  `KIOSK_REUSE_DOCKER_IMAGES=1`.
+
+### UI
+- Enter in the password field connects (the form used `method="dialog"` and closed instead).
+- "Red oculta" (manual SSID), open networks skip the password, show/hide password, signal and
+  lock per network, client-side validation, real error from the service, "no internet" state,
+  focused field scrolled into view above the OSK, health polling paused while hidden.
+
+### Still open
+- Legacy old-API files are unused but kept: `image/mbr/simple_dual/bdebstrap/`, `config/adagi_os.cfg`.
+- OTA: needs an A/B layout first (see the OTA section); `simple_dual` has a single root.
+
+## DONE — browser: Firefox ESR → WPE WebKit / cog (2026-10-21)
+- `adagi-kiosk.yaml`: `firefox-esr` replaced by `cog` (+ `glib-networking` for TLS, `fontconfig`,
+  `fonts-dejavu-core`, `libegl-mesa0`, `libgl1-mesa-dri`, not pulled in without recommends).
+  Firefox `user.js` / `policies.json` removed.
+- `kiosk-launch.sh.tpl`: waits for the manager service, then runs `cog --platform=wl --scale=0.7
+  --webprocess-failure=restart` in a restart loop (labwc does not exit when its autostart child dies,
+  so a crashed browser used to leave a black screen). No more kiosk/maximized branching: manager-os
+  already decides between wizard and homepage.
+- Window is maximized (`COG_PLATFORM_WL_VIEW_MAXIMIZE=1`), not fullscreen: wvkbd sits in the
+  layer-shell top layer with an exclusive zone, so the page is laid out above the keyboard.
+- `labwc-autostart.sh.tpl`: `wvkbd --show` → `wvkbd-mobintl` (Debian binary name; `--show` does not
+  exist and made wvkbd exit, so the OSK never started).
+- `kiosk.service.tpl`: `After/Wants=wifi_setup.service`, `WantedBy=multi-user.target` (the old
+  `After=multi-user.target` + `WantedBy=default.target` was an ordering cycle), `RestartSec=2`,
+  `StartLimitIntervalSec=0`, HTTP cache in tmpfs (`RuntimeDirectory=kiosk-cache`).
+- `adagi-kiosk.yaml`: homepage URL escaped for sed (`&`, `|`, `\`) and systemd (`%`).
+- `script.js`: after a successful Wi-Fi connection the wizard navigates to `/` (→ homepage).
+- `verify-image.sh`: checks cog, wvkbd-mobintl and glib-networking; asserts Firefox is absent.
+- CAVEAT: Debian ships wpewebkit 2.38.6 in bookworm (2.48.3 in trixie) and does not issue security
+  updates for it ("no DSA, ignored"), unlike firefox-esr. Only load trusted sites; consider trixie.
+
+## DONE — build speed, image size, UI redesign (2026-10-21)
+
+### Build speed: 9.5 min → 3.5 min (warm) / 2.5 min (UI only)
+- `docker-compose.yml`: named volume `image-work` mounted at `/home/imagegen/work` → the
+  rpi-image-gen workroot (host support packages) survives between builds. `pull_policy: missing`.
+- `kiosk_os/config/adagi_os.yaml`: new `sys:` section → `apt_cachedir: /home/imagegen/work/cache/apt`
+  (the .deb downloads are reused: 401 pkgs / 302 MB in the warm build) and `apt_get_purge: false`
+  (with purge on, APT deletes the packages right after installing them and empties the cache).
+- `build.sh`: creates the cache dir inside the container, computes a fingerprint of the layer
+  files and discards the cached filesystem only when the layers change (sudo is needed: the
+  chroot is owned by root). Docker images are only rebuilt when their Dockerfile is newer.
+- `build.sh`: Tailwind is only rebuilt when a source changed and uses the pinned local binary
+  (`manager-os/package.json`) instead of `npx --yes tailwindcss@3` (no download, no network).
+- `Dockerfile.manager`: BuildKit cache mounts for the cargo registry and target dir; cargo-chef
+  removed (the cache mounts do the same job).
+- `release.yml`: `cache-to: mode=min` (GHA cache is ~4x smaller).
+
+### Image size: 1.48 GB → 1.36 GB (-8%) and -230 MB of content
+- The `.img` size is driven by `image.root_part_size`, not by the content: 100% == 1.1 GB and the
+  content used to fill it completely. `root_part_size: 125% → 115%` (≈170 MB free in the writable
+  root) is what actually shrinks the image.
+- `kiosk_os/profile/adagi_os`: dropped the `nodejs` layer (node/npm are not used on the device).
+- `kiosk_os/meta/customizations.yaml` deleted: it duplicated the user creation of `adagi-kiosk.yaml`
+  and pulled `firefox` (transitional → firefox-esr) and `cage`.
+- `kiosk_os/layer/adagi-kiosk.yaml`: cleanup hook removes the APT lists, `/usr/share/doc`,
+  `/usr/share/man` and `/usr/share/info` from the image (-110 MB).
+- `manager-os/Dockerfile.manager`: the binary is now stripped (1.3 MB instead of 8.1 MB) and the
+  final image is 2.1 MB instead of 8.1 MB. The 8 MB binary is no longer tracked in git.
+- Biggest remaining chunk: `firefox-esr` (272 MB) + the Mesa/LLVM stack (159 MB, mandatory for
+  the GL/EGL stack) + `libicu72` (35 MB). Replacing Firefox with WPE WebKit would free ~400 MB.
+
+### Bugs fixed along the way
+- `manager-os/Dockerfile.manager`: the base tag `rust:1.86.1-bookworm` **does not exist**
+  (`1.86.0-bookworm` does) → the Docker build of the service was broken. Also missing the
+  aarch64 cross linker (`gcc-aarch64-linux-gnu`) and a `CMD` (needed by `docker create`).
+- `Dockerfile`: the amd64 branch patched `rpi-image-gen/scripts/dependencies_check`, a file that
+  no longer exists upstream (it moved to `lib/dependencies.sh`) → the sed failed and broke the
+  build. Removed.
+- `Dockerfile`: the apt lists were never removed after `install_deps.sh` (~80 MB).
+
+### UI redesign (Tailwind kept, minimal theme)
+- New app shell: status bar (connection, kiosk state, uptime, version, clock), sidebar with
+  three views (Estado / Red / Kiosco, hash routing) and native `<dialog>` modals (connect to a
+  network, restart the kiosk).
+- Icons: inline SVG sprite only. No emoji, no icon fonts, no raster, **no external requests**
+  (the Google Fonts import was a network dependency that broke the offline wizard).
+- Fixed: duplicate DOM ids (`wifi-form`, `connect-btn`, `drive`), the step 3 form posting to
+  `/set_wifi` without fields (400), the stepper race (`setTimeout` without cancel), the global
+  `user-select: none`, and the five dead content tiles.
+
+## DONE — scripts and GitHub pipeline (2026-10-21)
+
+### Scripts (all of them verified end to end)
+- `scripts/dev.env.example` created: it was referenced by the README, by
+  `dev-doctor.sh` and by the agent docs but did not exist.
+- `scripts/dev-build-rust.sh`: was not executable and failed with
+  "permission denied". Now executable, sources `~/.cargo/env` and falls back
+  to the Docker path when zig / the cross toolchain are not available.
+- `scripts/dev-build-service.sh`: rewrote it. It used to run `cargo build`
+  inside the manager-os image, which is impossible now that the final stage
+  is `FROM scratch` (it only carries the binary). It now builds the image and
+  extracts the binary with `docker create` + `docker cp`, installing it both
+  in `manager-os/target/` and in the image overlay.
+- `scripts/dev-run-local.sh` and `manager-os/run-local.sh`: they failed with
+  `cargo: not found` when the shell had no `~/.cargo/bin` in the PATH. Both
+  now source `~/.cargo/env`, check the toolchain, rebuild the Tailwind bundle
+  and fail early with a clear message when the port is already in use.
+- `scripts/dev-doctor.sh`: the SSH calls had no timeout, so the script hung
+  for minutes on an unreachable device. Now uses `BatchMode` + a 5 s
+  `ConnectTimeout`, skips the remote checks when the device is unreachable
+  and also verifies the Rust toolchain and the frontend dependencies.
+- `scripts/dev-sync-app.sh` / `dev-logs.sh`: same SSH timeout fix, plus a
+  connectivity pre-check in the sync script.
+- `scripts/verify-image.sh` (new): inspects the generated ext4 image with
+  `debugfs` and asserts that the frontend, the binary, the systemd units and
+  the browser are installed and that nodejs, the APT lists and the docs are
+  not. Used by the CI and by the release workflow.
+- The Rust service now reports "port already in use" with a hint instead of
+  a raw `AddrInUse` error.
+
+### Pipeline
+- `cargo test` tested nothing (there were no tests). Added 5 unit tests for
+  the wpa_supplicant escaping and the open-network case; they also pin the
+  "escape exactly once" behaviour.
+- `cargo audit` regenerated the lockfile, so it audited versions that were
+  not the ones being built. Now uses `rustsec/audit-check` with the committed
+  `Cargo.lock` (the lockfile is no longer ignored: a binary must be
+  reproducible).
+- The yamllint glob (`kiosk_os/**/*.yaml`) did not expand recursively in bash
+  (no `globstar`), so `config/adagi_os.yaml` was never linted. Now uses
+  `find`.
+- New CI jobs: service smoke test (real endpoints), Tailwind bundle freshness
+  (`npm run css` + `git diff`), no-external-assets check (the wizard must work
+  offline) and the full image build, which only runs when the image files
+  change.
+- `nightly.yml` had no cache and threw the image away: it now caches the
+  build image, verifies the image, uploads the artifacts and publishes the
+  nightly channel when the R2 credentials are configured.
+- `release.yml`: publishes the minisign signature and the public key in the
+  OTA manifest, self-verifies the signature before publishing and uses
+  `xz --check=crc32` (faster, the sha256 in the manifest already guarantees
+  the integrity).
+
 ## BUGS (fix first)
 - `kiosk_os/config/adagi_os.yaml`: `homepage_url: hhttps://...` → typo `hhttps`. Fix to `https`. 🟢
 - `build.sh:115-125`: manager-os image build + full `cargo build --release` + `docker compose build adagi_os` run here, then AGAIN at `:127-151`. Everything compiles twice; `BIN_BUILD_NEEDED` always evaluates stale. Delete `:115-125` (first block). Keep only the parallel section. 🟢

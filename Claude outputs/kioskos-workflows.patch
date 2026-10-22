@@ -1,0 +1,78 @@
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -98,6 +98,11 @@
+             echo "::error::static/tailwind-precompiled.css is out of date. Run 'cd manager-os && npm run css' and commit the result."
+             exit 1
+           fi
++      # Minified build used by the image: also fails if a placeholder that the
++      # service fills in ({{KIOSK_HOMEPAGE_URL}}) is lost.
++      - name: Minified frontend build
++        run: npm run --prefix manager-os --silent build:min
++
+       - name: No external assets (the wizard runs offline)
+         run: |
+           set -euo pipefail
+@@ -149,6 +154,9 @@
+     steps:
+       - uses: actions/checkout@v4
+       - uses: docker/setup-qemu-action@v3
++      # The gha cache backend needs the buildx (docker-container) driver: the
++      # default docker driver fails with "Cache export is not supported".
++      - uses: docker/setup-buildx-action@v3
+ 
+       - name: Detect image-affecting changes
+         id: changes
+@@ -176,6 +184,7 @@
+           fi
+ 
+       - name: Cache the build images
++        if: steps.changes.outputs.changed == 'true'
+         uses: docker/build-push-action@v6
+         with:
+           context: .
+@@ -186,6 +195,10 @@
+ 
+       - name: Build the image
+         if: steps.changes.outputs.changed == 'true'
++        # The checkout makes the Dockerfile look newer than the image loaded
++        # above: reuse it instead of rebuilding without cache.
++        env:
++          KIOSK_REUSE_DOCKER_IMAGES: '1'
+         run: ./build.sh
+ 
+       - name: Verify the image contents
+--- a/.github/workflows/nightly.yml
++++ b/.github/workflows/nightly.yml
+@@ -20,6 +20,7 @@
+     steps:
+       - uses: actions/checkout@v4
+       - uses: docker/setup-qemu-action@v3
++      - uses: docker/setup-buildx-action@v3
+ 
+       - name: Cache the build images
+         uses: docker/build-push-action@v6
+@@ -31,6 +32,8 @@
+           cache-to: type=gha,mode=min,scope=adagi-os
+ 
+       - name: Build the image
++        env:
++          KIOSK_REUSE_DOCKER_IMAGES: '1'
+         run: ./build.sh
+ 
+       - name: Verify the image contents
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -41,9 +41,11 @@
+           cache-from: type=gha,scope=adagi-os
+           cache-to: type=gha,mode=min,scope=adagi-os
+ 
+-      # build.sh reuses the images built above (it only rebuilds when the
+-      # Dockerfile is newer than the image) and regenerates the image itself.
++      # build.sh reuses the images built above (KIOSK_REUSE_DOCKER_IMAGES) and
++      # regenerates the image itself.
+       - name: Build image
++        env:
++          KIOSK_REUSE_DOCKER_IMAGES: '1'
+         run: ./build.sh
+ 
+       - name: Verify the image contents

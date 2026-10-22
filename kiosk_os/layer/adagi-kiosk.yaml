@@ -1,9 +1,9 @@
 # METABEGIN
 # X-Env-Layer-Name: adagi-kiosk
 # X-Env-Layer-Category: app
-# X-Env-Layer-Desc: KioskOS – WiFi setup wizard (Rust/actix-web) and Firefox ESR kiosk launcher via labwc/Wayland
+# X-Env-Layer-Desc: KioskOS – WiFi setup wizard (Rust/actix-web) and WPE WebKit (cog) kiosk launcher via labwc/Wayland
 # X-Env-Layer-Version: 1.0.0
-# X-Env-Layer-Requires: rpi-user-credentials,adagi-wifi
+# X-Env-Layer-Requires: adagi-wifi
 # X-Env-VarPrefix: kiosk
 # X-Env-Var-homepage_url: https://www.berel.com/
 # X-Env-Var-homepage_url-Desc: URL the kiosk browser loads when WiFi is connected
@@ -25,6 +25,11 @@
 # X-Env-Var-wifi_psk-Required: n
 # X-Env-Var-wifi_psk-Valid: string
 # X-Env-Var-wifi_psk-Set: n
+# X-Env-Var-wifi_country: US
+# X-Env-Var-wifi_country-Desc: Two-letter Wi-Fi regulatory domain (ISO 3166-1, e.g. MX, US, ES)
+# X-Env-Var-wifi_country-Required: n
+# X-Env-Var-wifi_country-Valid: string
+# X-Env-Var-wifi_country-Set: y
 # X-Env-Var-ssh_enable: 1
 # X-Env-Var-ssh_enable-Desc: Enable SSH service on first boot (1 or 0)
 # X-Env-Var-ssh_enable-Required: n
@@ -44,7 +49,16 @@ mmdebstrap:
     - labwc
     - wvkbd
     - wlr-randr
-    - firefox-esr
+    # WPE WebKit browser (cog launcher, Wayland platform plug-in included).
+    - cog
+    # Not pulled in with install-recommends=false, but required at runtime:
+    # TLS for libsoup (no HTTPS without it), fonts (text would not render),
+    # and the Mesa EGL/DRI drivers used by the WPE FDO backend on vc4.
+    - glib-networking
+    - fontconfig
+    - fonts-dejavu-core
+    - libegl-mesa0
+    - libgl1-mesa-dri
     - openssh-server
     - avahi-daemon
   install-recommends: false
@@ -59,6 +73,7 @@ mmdebstrap:
       ROTATION="${IGconf_kiosk_rotation:-normal}"
       WIFI_SSID="${IGconf_kiosk_wifi_ssid:-}"
       WIFI_PSK="${IGconf_kiosk_wifi_psk:-}"
+      WIFI_COUNTRY="${IGconf_kiosk_wifi_country:-US}"
       SSH_ENABLE="${IGconf_kiosk_ssh_enable:-1}"
       SSH_AUTHORIZED_KEY="${IGconf_kiosk_ssh_authorized_key:-}"
 
@@ -72,6 +87,13 @@ mmdebstrap:
           270) TOUCH_MATRIX="0 1 0 -1 0 1" ;;
           *) TOUCH_MATRIX="1 0 0 0 1 0" ;;
       esac
+
+      # ── Create kiosk user (replaces the removed rpi-user-credentials layer) ──
+      chroot "$1" sh -c "useradd -m -s /bin/bash -u 4000 '${IGconf_device_user1}'" 2>/dev/null || true
+      if [ -n "${IGconf_device_user1passhash:-}" ]; then
+        chroot "$1" sh -c "usermod --password '${IGconf_device_user1passhash}' '${IGconf_device_user1}'"
+      fi
+      chroot "$1" usermod --pass='*' root
 
       # ── Directories ────────────────────────────────────────────────────────
       mkdir -p "$1/etc/wpa_supplicant"
@@ -91,37 +113,43 @@ mmdebstrap:
           "$1/etc/systemd/system/wpa_supplicant@wlan0.service"
 
       # ── Optional preconfigured WiFi for first boot ────────────────────────
+      # wpa_supplicant does NOT process escapes inside ssid="..." or
+      # psk="..." (it reads up to the last quote literally), so the old
+      # backslash escaping broke SSIDs/passwords with quotes or backslashes.
+      # The SSID goes hex-encoded (valid for any bytes) and the passphrase
+      # verbatim; build.sh already validated its length and characters.
       if [ -n "$WIFI_SSID" ]; then
-          WIFI_SSID_ESC=$(printf '%s' "$WIFI_SSID" | sed 's/[\\"]/\\\\&/g')
-          if [ -n "$WIFI_PSK" ]; then
-              WIFI_PSK_ESC=$(printf '%s' "$WIFI_PSK" | sed 's/[\\"]/\\\\&/g')
-              printf '%s\n' \
-                  'ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev' \
-                  'update_config=1' \
-                  'country=US' \
-                  'network={' \
-                  '    ssid="'"${WIFI_SSID_ESC}"'"' \
-                  '    psk="'"${WIFI_PSK_ESC}"'"' \
-                  '    scan_ssid=1' \
-                  '}' \
-                  > "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+          WIFI_SSID_HEX=$(printf '%s' "$WIFI_SSID" | od -An -tx1 -v | tr -d ' \n')
+          if [ -z "$WIFI_PSK" ]; then
+              WIFI_SECURITY='    key_mgmt=NONE'
+          elif printf '%s' "$WIFI_PSK" | grep -Eq '^[0-9A-Fa-f]{64}$'; then
+              WIFI_SECURITY="    psk=${WIFI_PSK}"
           else
-              printf '%s\n' \
-                  'ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev' \
-                  'update_config=1' \
-                  'country=US' \
-                  'network={' \
-                  '    ssid="'"${WIFI_SSID_ESC}"'"' \
-                  '    key_mgmt=NONE' \
-                  '    scan_ssid=1' \
-                  '}' \
-                  > "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
+              WIFI_SECURITY="    psk=\"${WIFI_PSK}\""
           fi
+          ( umask 077
+            printf '%s\n' \
+                'ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev' \
+                'update_config=1' \
+                "country=${WIFI_COUNTRY}" \
+                '' \
+                'network={' \
+                "    ssid=${WIFI_SSID_HEX}" \
+                '    scan_ssid=1' \
+                "${WIFI_SECURITY}" \
+                '}' \
+                > "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf" )
           chmod 600 "$1/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
       fi
 
       # ── wifi_setup.service (from template) ────────────────────────────────
-      sed "s|<KIOSK_HOMEPAGE_URL>|${IGconf_kiosk_homepage_url}|g" \
+      # Escape the URL twice: '%' -> '%%' for systemd (it would read %xx
+      # as a unit specifier), then '&', '|' and '\' for the sed replacement
+      # (an unescaped '&' in a query string is replaced by the matched text).
+      HOMEPAGE_URL_ESC=$(printf '%s' "${IGconf_kiosk_homepage_url}" | sed -e 's/%/%%/g' -e 's/[&|\\]/\\&/g')
+      sed \
+          -e "s|<KIOSK_HOMEPAGE_URL>|${HOMEPAGE_URL_ESC}|g" \
+          -e "s|<KIOSK_WIFI_COUNTRY>|${WIFI_COUNTRY}|g" \
           "$CONFD/wifi_setup.service.tpl" \
           > "$1/etc/systemd/system/wifi_setup.service"
 
@@ -156,58 +184,12 @@ mmdebstrap:
           "$OVERLAY/usr/local/bin/wifi_setup_service" \
           "$1/usr/local/bin/wifi_setup_service"
 
-      # ── Firefox kiosk profile (global zoom 70%) ───────────────────────────
-      FIREFOX_PROFILE_DIR="$1/home/${IGconf_device_user1}/.mozilla/firefox/kiosk.default"
-      mkdir -p "$FIREFOX_PROFILE_DIR"
-      printf '%s\n' \
-          'pref("layout.css.devPixelsPerPx", "0.7");' \
-          'pref("browser.content.full-zoom", 0.7);' \
-          'pref("browser.zoom.siteSpecific", false);' \
-          'pref("zoom.minPercent", 30);' \
-          'pref("zoom.maxPercent", 300);' \
-          'pref("toolkit.zoomManager.zoomValues", ".3,.5,.67,.7,.8,.9,1,1.1,1.2,1.33,1.5,1.7,2,2.4,3");' \
-          > "$FIREFOX_PROFILE_DIR/user.js"
-
-      # Enforce Firefox policies globally (zoom, OSK, hardening, disk cache).
-      mkdir -p "$1/usr/lib/firefox-esr/distribution"
-      printf '%s\n' \
-          '{' \
-          '  "policies": {' \
-          '    "DisableAppUpdate": true,' \
-          '    "DisableTelemetry": true,' \
-          '    "DisablePocket": true,' \
-          '    "DontCheckDefaultBrowser": true,' \
-          '    "OverrideFirstRunPage": "",' \
-          '    "Preferences": {' \
-          '      "layout.css.devPixelsPerPx": {' \
-          '        "Value": "0.7",' \
-          '        "Status": "locked"' \
-          '      },' \
-          '      "browser.content.full-zoom": {' \
-          '        "Value": 0.7,' \
-          '        "Status": "locked"' \
-          '      },' \
-          '      "browser.zoom.siteSpecific": {' \
-          '        "Value": false,' \
-          '        "Status": "locked"' \
-          '      },' \
-          '      "widget.wayland.use-text-input": {' \
-          '        "Value": true,' \
-          '        "Status": "locked"' \
-          '      },' \
-          '      "browser.sessionstore.resume_from_crash": {' \
-          '        "Value": false,' \
-          '        "Status": "locked"' \
-          '      },' \
-          '      "browser.cache.disk.enable": {' \
-          '        "Value": false,' \
-          '        "Status": "locked"' \
-          '      }' \
-          '    }' \
-          '  }' \
-          '}' \
-          > "$1/usr/lib/firefox-esr/distribution/policies.json"
-      chroot "$1" chown -R ${IGconf_device_user1}:${IGconf_device_user1} "/home/${IGconf_device_user1}/.mozilla"
+      # ── Browser (WPE WebKit / cog) ─────────────────────────────────────────
+      # No profile or policy files are needed: zoom, crash recovery and window
+      # mode are command-line options/environment in kiosk-launch.sh, and the
+      # HTTP cache lives in tmpfs (XDG_CACHE_HOME in kiosk.service).
+      mkdir -p "$1/home/${IGconf_device_user1}/.local/share"
+      chroot "$1" chown -R ${IGconf_device_user1}:${IGconf_device_user1} "/home/${IGconf_device_user1}/.local"
 
       # ── Optional SSH key for kiosk user ───────────────────────────────────
       if [ -n "$SSH_AUTHORIZED_KEY" ]; then
@@ -222,12 +204,20 @@ mmdebstrap:
       # ── Static frontend files ──────────────────────────────────────────────
       cp -r "$OVERLAY/static/." "$1/static/"
 
-      # ── Boot config for Pi 3 ──────────────────────────────────────────────
+      # ── Boot config for the target board ─────────────────────────────────
+      # Pick the overlay that matches the device (it used to be the Pi 4 one
+      # for every board). device.class is set by the rpi device layer.
+      case "${IGconf_device_class:-${IGconf_device_layer:-pi4}}" in
+          pi3|rpi3|zero2w|rpi-zero2w) BOOT_OVERLAY=pi3 ;;
+          pi5|rpi5|cm5|rpi-cm5) BOOT_OVERLAY=pi5 ;;
+          *) BOOT_OVERLAY=pi4 ;;
+      esac
+      echo "adagi-kiosk: using the ${BOOT_OVERLAY} boot configuration"
       install -m 644 \
-          "$SRCROOT/device/pi3/device/rootfs-overlay/boot/firmware/config.txt" \
+          "$SRCROOT/device/${BOOT_OVERLAY}/device/rootfs-overlay/boot/firmware/config.txt" \
           "$1/boot/firmware/config.txt"
       install -m 644 \
-          "$SRCROOT/device/pi3/device/rootfs-overlay/boot/firmware/cmdline.txt" \
+          "$SRCROOT/device/${BOOT_OVERLAY}/device/rootfs-overlay/boot/firmware/cmdline.txt" \
           "$1/boot/firmware/cmdline.txt"
 
       # ── Touch rotation (libinput) ────────────────────────────────────────
@@ -261,3 +251,24 @@ mmdebstrap:
 
       # ── Mask getty on tty1 (prevent login prompt) ─────────────────────────
       systemctl --root="$1" mask getty@tty1.service
+
+      # ── Image size cleanup ─────────────────────────────────────────────────
+      # The root partition is sized from the content (image.root_part_size in
+      # config/adagi_os.yaml), so every megabyte removed here shrinks the
+      # final .img. The Mesa/LLVM stack is now the biggest chunk; it is a hard
+      # dependency of the GL/EGL stack and cannot be dropped. (firefox-esr,
+      # ~272 MB, was replaced by WPE WebKit.)
+      #
+      # The host-side APT cache (sys.apt_cachedir) makes rpi-image-gen skip
+      # the APT lists/cache cleanup, so the lists would end up inside the
+      # image. Drop them here instead.
+      #
+      # NOTE: /var/cache/apt/archives is a bind mount of the host cache while
+      # the build runs. Do NOT delete the .deb files from here: that would
+      # wipe the host cache too. mmdebstrap unmounts it before the image is
+      # assembled, so the archives never reach the image.
+      rm -rf "$1/var/lib/apt/lists/"* || true
+      # Documentation and man pages are useless on an unattended kiosk.
+      rm -rf "$1/usr/share/doc/"* || true
+      rm -rf "$1/usr/share/man/"* || true
+      rm -rf "$1/usr/share/info/"* || true

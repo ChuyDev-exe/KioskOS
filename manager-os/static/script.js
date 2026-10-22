@@ -1,240 +1,561 @@
-document.addEventListener("DOMContentLoaded", () => {
-  const sections = document.querySelectorAll(".Sec-form");
-  const resetBtn = document.getElementById("reset-step");
-  const pwdBtn = document.getElementById("pwd-btn");
-  const pwdInput = document.getElementById("pwd");
-  const wifiForm = document.getElementById("wifi-form");
-  const loadNetworkBtn = document.getElementById("Load_network");
-  const networkSelect = document.getElementById("network-select");
-  const connectBtn = document.getElementById("connect-btn");
-  const startKioskBtn = document.getElementById("start-kiosk-btn");
-  const statusMessage = document.getElementById("status-message");
-  let step = parseInt(localStorage.getItem("Steps")) || 1;
-  let wifiCheckInterval;
+/**
+ * KioskOS setup wizard.
+ *
+ * Minimal client for the manager service. No framework, no CDN, no emoji:
+ * every icon is an inline SVG symbol and every value is written with
+ * textContent (never innerHTML).
+ */
+(function () {
+  "use strict";
 
-  const showSvg = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"/></svg>`;
-  const hideSvg = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>`;
+  var POLL_INTERVAL_MS = 5000;
+  /* The service gives up (and rolls back) after 30 s: poll a bit longer. */
+  var CONNECT_ATTEMPTS = 25;
+  var CONNECT_POLL_MS = 2000;
+  /* Polls after "associated" while waiting for internet access. */
+  var INTERNET_GRACE_ATTEMPTS = 8;
 
-  function updateConnectionStatus(connected) {
-    if (connected) {
-      connectBtn.className =
-        "w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all";
-      startKioskBtn.classList.remove("hidden");
-      startKioskBtn.classList.add("flex");
-    } else {
-      connectBtn.className =
-        "w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all";
-      startKioskBtn.classList.add("hidden");
-      startKioskBtn.classList.remove("flex");
-    }
+  function el(id) {
+    return document.getElementById(id);
   }
 
-  async function checkWiFiStatus() {
-    try {
-      const response = await fetch("/check_wifi");
-      const data = await response.json();
-      updateConnectionStatus(data.connected);
-    } catch (error) {
-      console.error("Error checking WiFi:", error);
-      updateConnectionStatus(false);
-    }
+  var dom = {
+    dotConnection: el("dot-connection"),
+    labelConnection: el("label-connection"),
+    labelKiosk: el("label-kiosk"),
+    labelUptime: el("label-uptime"),
+    labelVersion: el("label-version"),
+    labelClock: el("label-clock"),
+    cardConnection: el("card-connection"),
+    cardConnectionNote: el("card-connection-note"),
+    cardKiosk: el("card-kiosk"),
+    cardKioskDetail: el("card-kiosk-detail"),
+    cardUptime: el("card-uptime"),
+    cardVersion: el("card-version"),
+    btnRefresh: el("btn-refresh"),
+    btnScan: el("btn-scan"),
+    btnHidden: el("btn-hidden"),
+    wifiList: el("wifi-list"),
+    wifiStatus: el("wifi-status"),
+    modalWifi: el("modal-wifi"),
+    modalRestart: el("modal-restart"),
+    wifiSsid: el("wifi-ssid"),
+    wifiPassword: el("wifi-password"),
+    wifiPasswordField: el("wifi-password-field"),
+    wifiShowPassword: el("wifi-show-password"),
+    wifiForm: el("wifi-form"),
+    wifiError: el("wifi-error"),
+    wifiModalSsid: el("wifi-modal-ssid"),
+    wifiConnect: el("wifi-connect"),
+    restartConfirm: el("restart-confirm"),
+    dotToast: el("dot-toast"),
+    footerMessage: el("footer-message"),
+  };
+
+  /* ── Helpers ───────────────────────────────────────────────────────── */
+
+  /* Full class names kept literal so the Tailwind scanner picks them up. */
+  var TONES = {
+    ok: "bg-ok",
+    danger: "bg-danger",
+    warn: "bg-warn",
+    muted: "bg-muted",
+  };
+
+  function setDot(node, tone) {
+    node.className = "dot " + (TONES[tone] || TONES.muted);
   }
 
-  // Check WiFi status on load and every 3 seconds
-  checkWiFiStatus();
-  wifiCheckInterval = setInterval(checkWiFiStatus, 3000);
+  function notify(message, tone) {
+    dom.footerMessage.textContent = message || "";
+    setDot(dom.dotToast, tone || "muted");
+  }
 
-  // Handle WiFi form submission
-  if (wifiForm) {
-    wifiForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
+  function formatUptime(seconds) {
+    var raw = String(seconds == null ? "" : seconds).trim();
+    if (raw === "") {
+      return "—";
+    }
+    var total = Number(raw);
+    if (!isFinite(total) || total < 0) {
+      return "—";
+    }
+    var days = Math.floor(total / 86400);
+    var hours = Math.floor((total % 86400) / 3600);
+    var minutes = Math.floor((total % 3600) / 60);
+    if (days > 0) {
+      return days + " d " + hours + " h";
+    }
+    if (hours > 0) {
+      return hours + " h " + minutes + " min";
+    }
+    return minutes + " min";
+  }
 
-      const formData = new FormData(wifiForm);
-      const ssid = formData.get("ssid") || formData.get("network");
-      const password = formData.get("password");
+  function fetchJson(path, options) {
+    return fetch(path, options || {})
+      .then(function (response) {
+        return response
+          .json()
+          .catch(function () {
+            return null;
+          })
+          .then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          });
+      })
+      .catch(function () {
+        return { ok: false, status: 0, data: null };
+      });
+  }
 
-      if (!ssid || !password) {
-        statusMessage.textContent = "Please enter both SSID and password";
-        statusMessage.className = "text-sm text-center text-red-400";
-        statusMessage.classList.remove("hidden");
-        return;
+  /* ── Navigation ────────────────────────────────────────────────────── */
+
+  var VIEWS = ["estado", "red", "kiosco"];
+
+  function currentView() {
+    var hash = (window.location.hash || "").replace("#", "");
+    return VIEWS.indexOf(hash) > -1 ? hash : "estado";
+  }
+
+  function setView(name, updateHash) {
+    var views = document.querySelectorAll("[data-view]");
+    for (var i = 0; i < views.length; i++) {
+      views[i].hidden = views[i].getAttribute("data-view") !== name;
+    }
+
+    var items = document.querySelectorAll("[data-nav]");
+    for (var j = 0; j < items.length; j++) {
+      if (items[j].getAttribute("data-nav") === name) {
+        items[j].setAttribute("aria-current", "page");
+      } else {
+        items[j].removeAttribute("aria-current");
       }
+    }
 
-      connectBtn.disabled = true;
-      connectBtn.querySelector("span").textContent = "Connecting...";
-      statusMessage.textContent = "Configuring WiFi...";
-      statusMessage.className = "text-sm text-center text-blue-400";
-      statusMessage.classList.remove("hidden");
+    if (updateHash !== false && window.location.hash !== "#" + name) {
+      window.location.hash = name;
+    }
+  }
 
-      try {
-        const response = await fetch("/set_wifi", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({ ssid, password }).toString(),
-        });
+  function bindNavigation() {
+    var items = document.querySelectorAll("[data-nav]");
+    for (var i = 0; i < items.length; i++) {
+      items[i].addEventListener("click", function (event) {
+        setView(event.currentTarget.getAttribute("data-nav"));
+      });
+    }
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+    window.addEventListener("hashchange", function () {
+      setView(currentView(), false);
+    });
+  }
 
-        const result = await response.json();
+  /* ── Health ────────────────────────────────────────────────────────── */
 
-        if (result.success) {
-          statusMessage.textContent =
-            "WiFi configured successfully! Checking connection...";
-          statusMessage.className = "text-sm text-center text-green-400";
+  function renderHealth(health) {
+    var linkUp = !!(health && health.wlan_connected);
+    /* "internet" is the real connectivity check; older builds only had the
+       interface state. */
+    var connected =
+      health && typeof health.internet === "boolean" ? health.internet : linkUp;
+    var kioskActive = !!(health && health.kiosk_service_active);
+    var uptime = formatUptime(health && health.uptime_secs);
+    var version = (health && health.version) || "—";
 
-          // Clear existing interval and start checking more frequently
-          clearInterval(wifiCheckInterval);
+    var label = connected
+      ? "Conectado"
+      : linkUp
+        ? "Sin internet"
+        : "Sin conexión";
+    setDot(dom.dotConnection, connected ? "ok" : linkUp ? "warn" : "danger");
+    dom.labelConnection.textContent = label;
+    dom.cardConnection.textContent = label;
+    dom.cardConnectionNote.textContent = connected
+      ? "Acceso a internet verificado"
+      : linkUp
+        ? "La red Wi‑Fi no tiene acceso a internet"
+        : "Configura una red para continuar";
 
-          let checkAttempts = 0;
-          const maxAttempts = 20; // 20 attempts x 2 seconds = 40 seconds max
+    dom.labelKiosk.textContent =
+      "kiosco " + (kioskActive ? "activo" : "inactivo");
+    dom.cardKiosk.textContent = kioskActive ? "Activo" : "Inactivo";
+    dom.cardKioskDetail.textContent = kioskActive ? "Activo" : "Inactivo";
 
-          const quickCheck = setInterval(async () => {
-            checkAttempts++;
+    dom.labelUptime.textContent = "uptime " + uptime;
+    dom.cardUptime.textContent = uptime;
+    dom.labelVersion.textContent = "v" + version;
+    dom.cardVersion.textContent = version;
+  }
 
-            try {
-              const response = await fetch("/check_wifi");
-              const data = await response.json();
-
-              if (data.connected) {
-                clearInterval(quickCheck);
-                updateConnectionStatus(true);
-                statusMessage.textContent =
-                  "Connected! You can now start the kiosk.";
-                statusMessage.className = "text-sm text-center text-green-400";
-                // Resume normal checking interval
-                wifiCheckInterval = setInterval(checkWiFiStatus, 3000);
-              } else if (checkAttempts >= maxAttempts) {
-                clearInterval(quickCheck);
-                statusMessage.textContent =
-                  "Connection timeout. Please check credentials and try again.";
-                statusMessage.className = "text-sm text-center text-orange-400";
-                // Resume normal checking interval
-                wifiCheckInterval = setInterval(checkWiFiStatus, 3000);
-              } else {
-                statusMessage.textContent = `Connecting... (${checkAttempts}/${maxAttempts})`;
-              }
-            } catch (error) {
-              console.error("Error during connection check:", error);
-            }
-          }, 2000); // Check every 2 seconds
-        } else {
-          statusMessage.textContent = `Error: ${result.error || "Failed to configure WiFi"}`;
-          statusMessage.className = "text-sm text-center text-red-400";
-        }
-      } catch (error) {
-        console.error("Fetch error:", error);
-        statusMessage.textContent = `Connection error: ${error.message}. Please try again.`;
-        statusMessage.className = "text-sm text-center text-red-400";
-      } finally {
-        connectBtn.disabled = false;
-        connectBtn.querySelector("span").textContent = "Connect";
+  function refreshHealth() {
+    if (document.hidden) {
+      return Promise.resolve();
+    }
+    return fetchJson("/health").then(function (result) {
+      if (result.ok && result.data) {
+        renderHealth(result.data);
+      } else {
+        setDot(dom.dotConnection, "danger");
+        dom.labelConnection.textContent = "Servicio sin respuesta";
       }
     });
   }
 
-  async function loadNetworks() {
-    if (!networkSelect) return;
+  function startClock() {
+    function tick() {
+      var now = new Date();
+      var hours = String(now.getHours()).padStart(2, "0");
+      var minutes = String(now.getMinutes()).padStart(2, "0");
+      dom.labelClock.textContent = hours + ":" + minutes;
+    }
+    tick();
+    setInterval(tick, 1000);
+  }
 
-    const previousValue = networkSelect.value;
+  /* ── Wi-Fi ─────────────────────────────────────────────────────────── */
 
-    if (loadNetworkBtn) {
-      loadNetworkBtn.disabled = true;
+  function normalizeNetwork(entry) {
+    /* Older services returned plain SSID strings. */
+    if (typeof entry === "string") {
+      return { ssid: entry, signal_dbm: null, secure: true };
+    }
+    return {
+      ssid: String(entry.ssid || ""),
+      signal_dbm:
+        typeof entry.signal_dbm === "number" ? entry.signal_dbm : null,
+      secure: entry.secure !== false,
+    };
+  }
+
+  function signalLabel(dbm) {
+    if (dbm == null) {
+      return "";
+    }
+    var quality = dbm >= -55 ? "Excelente" : dbm >= -70 ? "Buena" : "Débil";
+    return quality + " · " + dbm + " dBm";
+  }
+
+  function svgIcon(name) {
+    var icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    icon.setAttribute("class", "icon");
+    icon.setAttribute("aria-hidden", "true");
+    use.setAttribute("href", "#" + name);
+    icon.appendChild(use);
+    return icon;
+  }
+
+  function renderNetworks(networks) {
+    dom.wifiList.textContent = "";
+
+    if (!networks || networks.length === 0) {
+      dom.wifiList.classList.add("hidden");
+      dom.wifiStatus.textContent =
+        "No se han encontrado redes. Si la red es oculta, usa «Red oculta».";
+      return;
     }
 
-    try {
-      const response = await fetch("/scan_wifi");
-      const data = await response.json();
+    networks.map(normalizeNetwork).forEach(function (network) {
+      var item = document.createElement("li");
+      var button = document.createElement("button");
+      var text = document.createElement("span");
+      var name = document.createElement("span");
+      var meta = document.createElement("span");
+      var trailing = document.createElement("span");
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${response.status}`);
+      button.type = "button";
+      button.className =
+        "flex w-full items-center justify-between gap-3 py-4 text-left text-sm transition-colors hover:text-accent";
+      text.className = "flex flex-col gap-1";
+      name.textContent = network.ssid;
+      meta.className = "text-xs text-muted";
+      meta.textContent =
+        (network.secure ? "Protegida" : "Abierta") +
+        (network.signal_dbm != null
+          ? " · " + signalLabel(network.signal_dbm)
+          : "");
+      trailing.className = "flex items-center gap-2 text-muted";
+
+      text.appendChild(name);
+      text.appendChild(meta);
+      if (network.secure) {
+        trailing.appendChild(svgIcon("i-lock"));
       }
-
-      networkSelect.innerHTML = "";
-
-      const defaultOption = document.createElement("option");
-      defaultOption.value = "";
-      defaultOption.textContent = "Select Network";
-      networkSelect.appendChild(defaultOption);
-
-      (data.networks || []).forEach((ssid) => {
-        const option = document.createElement("option");
-        option.value = ssid;
-        option.textContent = ssid;
-        networkSelect.appendChild(option);
+      trailing.appendChild(svgIcon("i-chevron"));
+      button.appendChild(text);
+      button.appendChild(trailing);
+      button.addEventListener("click", function () {
+        openWifiModal(network);
       });
 
-      if (previousValue && (data.networks || []).includes(previousValue)) {
-        networkSelect.value = previousValue;
-      }
+      item.appendChild(button);
+      dom.wifiList.appendChild(item);
+    });
 
-      statusMessage.textContent = `Found ${(data.networks || []).length} networks`;
-      statusMessage.className = "text-sm text-center text-green-400";
-      statusMessage.classList.remove("hidden");
-    } catch (error) {
-      console.error("Error scanning WiFi networks:", error);
-      statusMessage.textContent = `Failed to load networks: ${error.message}`;
-      statusMessage.className = "text-sm text-center text-red-400";
-      statusMessage.classList.remove("hidden");
-    } finally {
-      if (loadNetworkBtn) {
-        loadNetworkBtn.disabled = false;
-      }
+    dom.wifiList.classList.remove("hidden");
+    dom.wifiStatus.textContent =
+      networks.length === 1
+        ? "1 red encontrada"
+        : networks.length + " redes encontradas";
+  }
+
+  function scanNetworks() {
+    dom.btnScan.disabled = true;
+    dom.wifiStatus.textContent = "Buscando redes…";
+
+    return fetchJson("/scan_wifi")
+      .then(function (result) {
+        if (result.ok && result.data && result.data.success) {
+          renderNetworks(result.data.networks || []);
+        } else {
+          dom.wifiStatus.textContent =
+            (result.data && result.data.error) ||
+            "No se pudo completar el escaneo.";
+        }
+      })
+      .finally(function () {
+        dom.btnScan.disabled = false;
+      });
+  }
+
+  /* The network being configured: { ssid, secure, hidden }. */
+  var pending = null;
+
+  function showWifiError(message) {
+    dom.wifiError.textContent = message;
+    dom.wifiError.classList.remove("hidden");
+  }
+
+  function openWifiModal(network) {
+    pending = network
+      ? { ssid: network.ssid, secure: network.secure, hidden: false }
+      : { ssid: "", secure: true, hidden: true };
+
+    dom.wifiError.classList.add("hidden");
+    dom.wifiError.textContent = "";
+    dom.wifiPassword.value = "";
+    dom.wifiPassword.type = "password";
+    dom.wifiShowPassword.checked = false;
+    dom.wifiSsid.value = pending.ssid;
+    dom.wifiSsid.readOnly = !pending.hidden;
+    /* A class, not the hidden attribute: .field sets display:flex. */
+    dom.wifiPasswordField.classList.toggle("hidden", !pending.secure);
+    dom.wifiModalSsid.textContent = pending.hidden
+      ? "Escribe el nombre exacto de la red oculta. Deja la contraseña vacía si es abierta."
+      : pending.secure
+        ? "Red: " + pending.ssid
+        : "Red abierta: " + pending.ssid + " (no requiere contraseña)";
+
+    if (typeof dom.modalWifi.showModal === "function") {
+      dom.modalWifi.showModal();
+    }
+    if (pending.hidden) {
+      dom.wifiSsid.focus();
+    } else if (pending.secure) {
+      dom.wifiPassword.focus();
+    } else {
+      dom.wifiConnect.focus();
     }
   }
 
-  if (loadNetworkBtn) {
-    loadNetworkBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      loadNetworks();
+  function closeWifiModal() {
+    if (dom.modalWifi.open) {
+      dom.modalWifi.close();
+    }
+  }
+
+  /* Mirrors the server-side validation so mistakes show up instantly. */
+  function validateWifi(ssid, password) {
+    if (!ssid) {
+      return "Escribe el nombre de la red.";
+    }
+    if (new TextEncoder().encode(ssid).length > 32) {
+      return "El nombre de la red no puede superar 32 bytes.";
+    }
+    if (password === "") {
+      return pending && pending.secure && !pending.hidden
+        ? "Esta red está protegida: escribe la contraseña."
+        : null;
+    }
+    if (/^[0-9a-fA-F]{64}$/.test(password)) {
+      return null;
+    }
+    if (!/^[\x20-\x7e]{8,63}$/.test(password)) {
+      return "La contraseña debe tener entre 8 y 63 caracteres.";
+    }
+    return null;
+  }
+
+  function connectWifi(event) {
+    if (event) {
+      event.preventDefault();
+    }
+    var ssid = dom.wifiSsid.value.trim();
+    var password = pending && !pending.secure ? "" : dom.wifiPassword.value;
+
+    var problem = validateWifi(ssid, password);
+    if (problem) {
+      showWifiError(problem);
+      return;
+    }
+
+    dom.wifiConnect.disabled = true;
+    dom.wifiConnect.textContent = "Conectando…";
+    dom.wifiError.classList.add("hidden");
+
+    var body = new URLSearchParams();
+    body.set("ssid", ssid);
+    body.set("password", password);
+
+    fetchJson("/set_wifi", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    })
+      .then(function (result) {
+        if (!result.ok) {
+          throw new Error(
+            (result.data && result.data.error) ||
+              (result.status ? "HTTP " + result.status : "sin respuesta"),
+          );
+        }
+        closeWifiModal();
+        notify("Conectando a " + ssid + "…", "warn");
+        dom.wifiStatus.textContent = "Conectando a " + ssid + "…";
+        return waitForConnection(ssid);
+      })
+      .catch(function (error) {
+        showWifiError("No se pudo iniciar la conexión: " + error.message);
+      })
+      .finally(function () {
+        dom.wifiConnect.disabled = false;
+        dom.wifiConnect.textContent = "Conectar";
+      });
+  }
+
+  function sleep(ms) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, ms);
     });
   }
 
-  // Handle Start Kiosk button
-  if (startKioskBtn) {
-    startKioskBtn.addEventListener("click", () => {
-      // Request fullscreen
-      document.documentElement.requestFullscreen().catch((e) => console.log(e));
-      // Redirect to kiosk
-      window.location.href = "/start_kiosk";
-    });
+  function waitForConnection(ssid) {
+    var attempts = 0;
+    var graceLeft = INTERNET_GRACE_ATTEMPTS;
+
+    function fail(message) {
+      notify(message, "danger");
+      dom.wifiStatus.textContent = message;
+      return null;
+    }
+
+    function attempt() {
+      attempts += 1;
+      return fetchJson("/check_wifi").then(function (result) {
+        var data = (result.ok && result.data) || {};
+
+        if (data.phase === "failed") {
+          return fail(data.error || "No se pudo conectar a " + ssid + ".");
+        }
+        if (data.phase === "connected") {
+          if (data.connected) {
+            notify("Conectado a " + ssid + ". Abriendo el kiosco…", "ok");
+            dom.wifiStatus.textContent = "Conectado a " + ssid + ".";
+            /* "/" redirects to the configured homepage once online. */
+            setTimeout(function () {
+              window.location.href = "/";
+            }, 1500);
+            return refreshHealth();
+          }
+          graceLeft -= 1;
+          if (graceLeft <= 0) {
+            refreshHealth();
+            return fail(
+              "Conectado a " +
+                ssid +
+                ", pero la red no tiene acceso a internet.",
+            );
+          }
+        } else if (attempts >= CONNECT_ATTEMPTS) {
+          return fail("No se pudo conectar. Revisa la contraseña.");
+        }
+        return sleep(CONNECT_POLL_MS).then(attempt);
+      });
+    }
+
+    return attempt();
   }
 
-  function showStep(n) {
-    sections.forEach((sec, i) => {
-      if (i + 1 === n) {
-        sec.classList.remove("hidden");
-        sec.style.pointerEvents = "auto";
-        requestAnimationFrame(() => sec.classList.add("flex"));
+  /* ── Kiosk ─────────────────────────────────────────────────────────── */
+
+  function openRestartModal() {
+    if (typeof dom.modalRestart.showModal === "function") {
+      dom.modalRestart.showModal();
+    }
+  }
+
+  function restartKiosk() {
+    dom.modalRestart.close();
+    notify("Reiniciando el kiosco…", "warn");
+    fetchJson("/start_kiosk", { method: "POST" }).then(function (result) {
+      if (result.ok) {
+        /* The browser is normally killed by the restart; if it survives
+           (local development), show the restart page. */
+        window.location.href = "/restarting";
       } else {
-        sec.classList.remove("flex");
-        sec.style.pointerEvents = "none";
-        setTimeout(() => sec.classList.add("hidden"), 390);
+        notify(
+          (result.data && result.data.error) ||
+            "No se pudo reiniciar el kiosco.",
+          "danger",
+        );
       }
     });
-    if (resetBtn) resetBtn.style.display = n === sections.length ? "" : "none";
-    localStorage.setItem("Steps", n);
   }
 
-  showStep(step);
+  /* Keep the focused field visible above the on-screen keyboard. */
+  function keepFieldVisible(input) {
+    input.addEventListener("focus", function () {
+      setTimeout(function () {
+        input.scrollIntoView({ block: "center" });
+      }, 300);
+    });
+  }
 
-  document.querySelectorAll(".next-step").forEach((btn) => {
-    btn.onpointerdown = (e) => {
-      e.preventDefault();
-      if (step < sections.length) showStep(++step);
-    };
+  /* ── Boot ──────────────────────────────────────────────────────────── */
+
+  document.addEventListener("DOMContentLoaded", function () {
+    bindNavigation();
+    startClock();
+    setView(currentView(), false);
+
+    dom.btnRefresh.addEventListener("click", function () {
+      refreshHealth();
+    });
+    dom.btnScan.addEventListener("click", scanNetworks);
+    dom.btnHidden.addEventListener("click", function () {
+      openWifiModal(null);
+    });
+    dom.wifiForm.addEventListener("submit", connectWifi);
+    el("wifi-close").addEventListener("click", closeWifiModal);
+    el("wifi-cancel").addEventListener("click", closeWifiModal);
+    dom.wifiShowPassword.addEventListener("change", function () {
+      dom.wifiPassword.type = dom.wifiShowPassword.checked
+        ? "text"
+        : "password";
+    });
+    keepFieldVisible(dom.wifiSsid);
+    keepFieldVisible(dom.wifiPassword);
+    dom.restartConfirm.addEventListener("click", restartKiosk);
+    el("btn-restart").addEventListener("click", openRestartModal);
+    el("btn-restart-2").addEventListener("click", openRestartModal);
+
+    refreshHealth();
+    setInterval(refreshHealth, POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) {
+        refreshHealth();
+      }
+    });
   });
-
-  if (resetBtn) resetBtn.onpointerdown = () => showStep((step = 1));
-
-  if (pwdBtn && pwdInput) {
-    pwdBtn.onpointerdown = () => {
-      const show = pwdInput.type === "password";
-      pwdInput.type = show ? "text" : "password";
-      pwdBtn.innerHTML = show ? showSvg : hideSvg;
-    };
-  }
-});
+})();

@@ -1,55 +1,42 @@
 #!/bin/bash
+#
+# Kiosk browser launcher: WPE WebKit (cog) inside labwc.
+#
+# Always opens the local manager service. The service decides what to show:
+# the setup wizard when there is no connectivity, or a redirect to the
+# configured homepage when the device is online. So there is no "kiosk vs
+# maximized" branching here anymore.
+set -u
 
-# Rotate screen for the kiosk session.
-ROTATION="<KIOSK_ROTATION>"
-# Valid rotation values: normal, 90, 180, 270
-if [ -n "$ROTATION" ] && [ "$ROTATION" != "normal" ] && [ "$ROTATION" != "0" ]; then
-    case "$ROTATION" in
-        90|180|270)
-            wlr-randr --output HDMI-A-1 --transform "$ROTATION" 2>/dev/null || true
-            wlr-randr --output HDMI-A-2 --transform "$ROTATION" 2>/dev/null || true
-            wlr-randr --output DSI-1 --transform "$ROTATION" 2>/dev/null || true
-            ;;
-    esac
-fi
+URL="http://localhost:8080"
 
-# Check if WiFi is connected
-check_wifi() {
-    local interface="wlan0"
-    
-    if [ ! -f "/sys/class/net/$interface/operstate" ]; then
-        return 1
+# Page zoom applied to every site (Firefox used 0.7 via full-zoom).
+SCALE="0.7"
+
+# Maximized (not fullscreen): the on-screen keyboard (wvkbd) lives in the
+# layer-shell "top" layer with an exclusive zone, so a maximized window is
+# laid out above it. A fullscreen window would cover the keyboard.
+export COG_PLATFORM_WL_VIEW_MAXIMIZE=1
+
+# Wait for the manager service (max ~30 s) so the first load does not end on
+# a "could not connect" page.
+for _ in $(seq 1 30); do
+    if (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null; then
+        break
     fi
-    
-    local state
-    state=$(cat /sys/class/net/$interface/operstate 2>/dev/null || echo "down")
-    if [ "$state" != "up" ]; then
-        return 1
-    fi
-    
-    if ip addr show "$interface" | grep -q "inet .*scope global"; then
-        return 0
-    fi
-    
-    return 1
-}
-
-check_internet() {
-    ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1
-}
-
-# Firefox options
-FIREFOX_PROFILE="/home/<KIOSK_USER>/.mozilla/firefox/kiosk.default"
-FIREFOX_OPTS=(--noerrdialogs --profile "$FIREFOX_PROFILE")
-
-# Give networking a short head-start, then choose launch mode.
-for _ in 1 2 3 4 5; do
-    check_wifi && break
-    sleep 2
+    sleep 1
 done
 
-if check_wifi && check_internet; then
-    exec /usr/bin/firefox-esr http://localhost:8080 "${FIREFOX_OPTS[@]}" --kiosk
-else
-    exec /usr/bin/firefox-esr http://localhost:8080 "${FIREFOX_OPTS[@]}" --start-maximized
-fi
+# Keep the browser alive: if cog exits or crashes, start it again. labwc
+# keeps running when its autostart child dies, so systemd's Restart= would
+# never notice a dead browser.
+while true; do
+    /usr/bin/cog \
+        --platform=wl \
+        --scale="$SCALE" \
+        --webprocess-failure=restart \
+        --bg-color=#0b0f14 \
+        "$URL"
+    echo "kiosk-launch: cog exited with status $?, restarting in 2 s" >&2
+    sleep 2
+done

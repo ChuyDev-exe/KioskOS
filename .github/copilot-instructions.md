@@ -24,10 +24,12 @@ KioskOS/
 │   ├── Dockerfile.manager            # Cross-compiles for aarch64-unknown-linux-gnu
 │   ├── src/main.rs                   # HTTP server (port 8080)
 │   └── static/                       # Frontend assets (served at /static/)
-│       ├── index.html                # Multi-step WiFi setup wizard
-│       ├── script.js                 # AJAX logic, WiFi status polling, stepper
-│       ├── style.css                 # Tailwind + custom animations
-│       └── tailwind.js               # Tailwind CDN bundle
+│       ├── index.html                # App shell: status bar + sidebar + views + dialogs
+│       ├── script.js                 # Router, API client, WiFi flow, modals
+│       ├── input.css                 # Tailwind source + component layer (@apply)
+│       ├── style.css                 # Runtime CSS (dialog, scrollbars, layout vars)
+│       ├── tailwind.config.js        # Minimal theme (colors, spacing, type scale)
+│       └── tailwind-precompiled.css  # Generated bundle (do not edit)
 │
 ├── kiosk_os/                         # Raspberry Pi image customizations
 │   ├── adagi_os.options              # Build options (user, password, homepage URL, rotation)
@@ -42,7 +44,7 @@ KioskOS/
 │   │   │   ├── customize-splash      # Plymouth splash screen hook
 │   │   │   └── customize05-pkgs      # Package installation hook
 │   │   ├── kiosk-conf/
-│   │   │   ├── kiosk-launch.sh.tpl   # Firefox launcher (template, DO NOT change logic here)
+│   │   │   ├── kiosk-launch.sh.tpl   # WPE WebKit (cog) launcher + restart loop (template)
 │   │   │   ├── kiosk.service.tpl     # cage Wayland session service template
 │   │   │   ├── wifi_setup.service.tpl # systemd service for the Rust server
 │   │   │   └── unblock-wifi.service  # rfkill unblock at boot
@@ -51,7 +53,6 @@ KioskOS/
 │   │       ├── static/               # Built static files (copied by build.sh)
 │   │       └── usr/local/bin/wifi_setup_service  # Built Rust binary (copied by build.sh)
 │   └── meta/
-│       ├── customizations.yaml       # Debian packages (plymouth, cage, firefox-esr, wlr-randr)
 │       └── wifi-networking.yaml      # Network stack packages
 │
 └── deploy/
@@ -65,13 +66,13 @@ KioskOS/
 | Component | Technology |
 |-----------|-----------|
 | OS Image Builder | `rpi-image-gen` + `bdebstrap` (Debian Bookworm) |
-| Wayland compositor | `cage` (single-app kiosk compositor) |
-| Browser | `firefox-esr` |
+| Wayland compositor | `labwc` (wlroots, wlr-layer-shell for the OSK) |
+| Browser | WPE WebKit (`cog`, Wayland platform, maximized) |
 | Screen rotation | `wlr-randr` |
 | WiFi auth | `wpa_supplicant` (template: `wpa_supplicant@wlan0.service`) |
 | DHCP | `dhclient` |
 | Backend | Rust, actix-web 4, actix-files 0.6, serde/serde_json |
-| Frontend | Vanilla JS, Tailwind CSS, Fetch API |
+| Frontend | Vanilla JS, Tailwind CSS 3 (precompiled), Fetch API, inline SVG icons |
 | Cross-compilation | Docker + `aarch64-unknown-linux-gnu` Rust target |
 | Init system | systemd |
 
@@ -100,9 +101,9 @@ Boot
       ├── wifi_setup.service       → Rust server on port 8080
       │    └── STATIC_PATH=/static
       │    └── KIOSK_HOMEPAGE_URL=<from options>
-      └── kiosk.service            → cage → kiosk-launch.sh
-           ├── if wlan0 up + inet  → firefox-esr localhost:8080 --kiosk
-           └── else                → firefox-esr localhost:8080 --start-maximized
+      └── kiosk.service            → labwc → kiosk-launch.sh
+           └── cog http://localhost:8080 (restart loop; manager-os shows the
+               wizard offline or redirects to the homepage online)
 ```
 
 ---
@@ -126,20 +127,52 @@ Boot
 
 ## Frontend Behavior (`static/script.js`)
 
-- **Multi-step wizard**: 3 sections (`.Sec-form`), step persisted in `localStorage`
-- **WiFi polling**: `checkWiFiStatus()` every 3 seconds via `GET /check_wifi`
-- **Button states**:
-  - Red (`bg-red-600`): No internet
-  - Green (`bg-green-600`): Internet connected
-- **Start Kiosk button**: Hidden until `/check_wifi` returns `{connected: true}`
-- **Form submission**: AJAX `fetch()` to `POST /set_wifi`, never redirects
-- **Progressive retry**: After successful config, polls every 2s for up to 40s (20 attempts)
-- **Network scan**: `Load_network` button triggers network scan (populate `#network-select`)
-- **Password toggle**: `#pwd-btn` toggles visibility of `#pwd`
+- **App shell**: status bar (connection, kiosk state, uptime, version, clock),
+  sidebar with 3 views (`#estado`, `#red`, `#kiosco`) and native `<dialog>`
+  modals (connect to a network, restart the kiosk)
+- **Health polling**: `refreshHealth()` every 5 seconds via `GET /health`; it
+  updates the status bar and the cards of the *Estado* view
+- **Status dots**: green (`bg-ok`) connected, red (`bg-danger`) not connected,
+  amber (`bg-warn`) pending
+- **Views**: `Estado`, `Red` (scan + list + connect modal) and `Kiosco`
+  (service state + restart). The current view is kept in the URL hash
+- **WiFi flow**: `#btn-scan` → `GET /scan_wifi` → list → click a network →
+  *Conectar a una red* modal → `POST /set_wifi` → polls `GET /check_wifi`
+  every 2s for up to 40s (20 attempts)
+- **Modals**: native `<dialog>` + `showModal()` (focus trap, Esc and backdrop
+  for free). *Reiniciar el kiosco* navigates to `/start_kiosk`
+- **Icons**: inline SVG sprite only (`#i-status`, `#i-wifi`, `#i-kiosk`,
+  `#i-power`, `#i-refresh`, `#i-chevron`, `#i-check`, `#i-alert`, `#i-search`,
+  `#i-close`). No emoji, no icon fonts, no raster assets
+- **Values are rendered with `textContent`**, never `innerHTML`
 
 ---
 
 ## Build Pipeline (`build.sh`)
+
+1. `sync_config_from_options` → `kiosk_os/config/adagi_os.yaml` (source of truth: `adagi_os.options`)
+2. Tailwind: rebuilt only when a source changed (pinned local binary, `manager-os/package.json`)
+3. Rust binary: `cargo zigbuild` → `cargo` → Docker (the image only carries the stripped binary)
+4. Docker images: rebuilt only when their Dockerfile is newer than the image
+5. rpi-image-gen: the workroot lives in the `image-work` volume, so the host tools and the APT
+   download cache (`sys.apt_cachedir`) survive between builds. The cached filesystem is discarded
+   when the layer fingerprint changes.
+6. `scripts/verify-image.sh` asserts the contents of the result
+
+### Development scripts
+| Script | Purpose |
+|--------|---------|
+| `scripts/dev-doctor.sh` | Validates the toolchain and the device connection (5 s SSH timeout, never hangs) |
+| `scripts/dev-build-rust.sh` | Native aarch64 cross-compile with fallbacks |
+| `scripts/dev-build-service.sh` | Docker cross-compile (no Rust toolchain needed) |
+| `scripts/dev-run-local.sh` | Runs the service locally with the static assets |
+| `scripts/dev-sync-all.sh` | Build + deploy + restart on the device |
+| `scripts/dev-sync-app.sh` | Deploy the binary and the static assets |
+| `scripts/dev-logs.sh` | Stream the device logs |
+| `scripts/verify-image.sh` | Verify the contents of the generated image |
+| `scripts/dev.env.example` | Template for `scripts/dev.env` |
+
+## Original Build Pipeline (`build.sh`)
 
 1. `docker compose build manager-os` → builds Rust cross-compiler image
 2. `cargo build --release --target aarch64-unknown-linux-gnu` → compiles binary
@@ -170,7 +203,7 @@ Boot
 | WiFi not persisting after reboot | `wpa_supplicant@wlan0` not enabled | Check `customize-kiosk` enables it |
 | Button stays red after config | Network takes 5-15s to establish | Progressive retry (40s timeout) in `script.js` |
 | `Error reading index.html from /static/index.html` | `STATIC_PATH` not set | Set `STATIC_PATH=/path/to/static` env var |
-| Firefox in `--start-maximized` instead of `--kiosk` | WiFi not up at kiosk start | Ensure `check_wifi()` in bash returns 0 |
+| Keyboard covers the page | cog launched fullscreen | Keep `COG_PLATFORM_WL_VIEW_MAXIMIZE=1` (wvkbd reserves an exclusive zone) |
 | No internet but WiFi connected | Ping test not passing | Check routing, DNS; `ping 8.8.8.8` manually |
 
 ---

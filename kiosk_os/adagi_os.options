@@ -1,15 +1,23 @@
-DEVICE_USER1=kiosk
-DEVICE_USER1PASS=kiosk_manager
-kiosk_homepage_url=https://jesusvelez.xyz/
+# KioskOS build options (tracked by git: do NOT put secrets here).
+#
+# build.sh merges these values, then kiosk_os/adagi_os.local.options (private,
+# ignored by git) on top, into config/adagi_os.generated.yaml, which is what
+# rpi-image-gen builds. Device and image settings (board, user, partition
+# sizes) live in config/adagi_os.yaml.
+
+kiosk_homepage_url=https://berel.com/
+# 0/normal, 90, 180 or 270
 kiosk_rotation=90
 
-# WiFi preconfigurado para primer arranque (opcional)
+# Two-letter Wi-Fi regulatory domain (e.g. MX, US, ES)
+kiosk_wifi_country=US
+
+# Preconfigured Wi-Fi for the first boot: set it in adagi_os.local.options
 kiosk_wifi_ssid=
 kiosk_wifi_psk=
 
-# SSH en primer arranque (1=habilitado, 0=deshabilitado)
+# SSH on first boot (1=enabled, 0=disabled)
 kiosk_ssh_enable=1
 
-# Clave pública SSH opcional para acceso sin password
-# Ejemplo: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... tu_usuario@equipo
+# Optional SSH public key: set it in adagi_os.local.options
 kiosk_ssh_authorized_key=

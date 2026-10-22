@@ -119,7 +119,7 @@ Always return JSON — **never redirect** from API endpoints.
 ```bash
 journalctl -u wifi_setup.service -f          # Rust server logs
 journalctl -u wpa_supplicant@wlan0.service -f # WiFi auth logs
-journalctl -u kiosk.service -f               # Firefox/cage logs
+journalctl -u kiosk.service -f               # labwc / cog logs
 
 # Manual connectivity check:
 cat /sys/class/net/wlan0/operstate           # → "up"
@@ -149,6 +149,26 @@ diskutil eject /dev/disk4
 
 ## Architecture Reference
 
+### Scripts (all verified)
+| Script | Purpose |
+|--------|---------|
+| `scripts/dev-doctor.sh` | Validates the local toolchain (docker, cargo, npm) and the connection to the Pi. Fails fast, never hangs on SSH. |
+| `scripts/dev-build-rust.sh` | Native aarch64 cross-compile (zig → cargo → Docker fallback). |
+| `scripts/dev-build-service.sh` | Docker cross-compile (no Rust toolchain needed). Extracts the binary from the image. |
+| `scripts/dev-run-local.sh` | Runs the service on the host with the static assets. |
+| `scripts/dev-sync-all.sh` | Build + deploy + restart on the device. |
+| `scripts/dev-sync-app.sh` | Deploy the binary and the static assets to the device. |
+| `scripts/dev-logs.sh` | Stream the service logs from the device. |
+| `scripts/verify-image.sh` | Asserts the contents of the generated image (debugfs). |
+| `scripts/dev.env.example` | Template for `scripts/dev.env` (PI_HOST, PI_USER, PI_PORT). |
+
+### CI/CD
+- `ci.yml`: fmt, clippy, test, build, cargo-audit (committed lockfile), shellcheck, yamllint,
+  prettier, Tailwind freshness, no-external-assets, service smoke test and the image build
+  (only when the image files change) + `verify-image.sh`.
+- `nightly.yml`: cached build, image verification, artifacts and the nightly R2 channel.
+- `release.yml`: build, verify, minisign sign + self-verify, publish image/signature/SBOM/manifest.
+
 ### Repo structure (key paths)
 ```
 KioskOS/
@@ -176,7 +196,7 @@ KioskOS/
 unblock-wifi.service  →  rfkill unblock wifi
 wpa_supplicant@wlan0  →  authenticate with wpa_supplicant-wlan0.conf
 wifi_setup.service    →  Rust server on :8080 (STATIC_PATH=/static)
-kiosk.service         →  cage → kiosk-launch.sh → Firefox
+kiosk.service         →  labwc → kiosk-launch.sh → cog (WPE WebKit)
                             WiFi up?  → --kiosk mode
                             No WiFi?  → --start-maximized mode
 ```
@@ -187,11 +207,21 @@ kiosk.service         →  cage → kiosk-launch.sh → Firefox
 3. `ping -c 1 -W 5 8.8.8.8` succeeds
 
 ### Frontend connection flow
-1. Page loads → `checkWiFiStatus()` immediately + every 3s
-2. Submit form → `fetch POST /set_wifi` → JSON `{"success": bool}`
-3. On `success: true` → progressive retry (20 × 2s = 40s max)
-4. On `connected: true` → green button + Start Kiosk appears
-5. Start Kiosk → `GET /start_kiosk` → `systemctl restart kiosk.service`
+1. Page loads → `refreshHealth()` immediately + every 5s (`GET /health`)
+2. Vista *Red* → `#btn-scan` → `GET /scan_wifi` → lista de SSID
+3. Click en una red → modal *Conectar a una red* → `fetch POST /set_wifi`
+4. On `success: true` → progressive retry (20 × 2s = 40s max) on `/check_wifi`
+5. On `connected: true` → la barra de estado pasa a verde
+6. Vista *Kiosco* → modal *Reiniciar* → `GET /start_kiosk` → `systemctl restart kiosk.service`
+
+### Frontend assets
+- `manager-os/static/index.html` → shell (status bar + sidebar + vistas + `<dialog>`)
+- `manager-os/static/script.js` → router + API client (sin framework, sin CDN)
+- `manager-os/static/input.css` → fuente de Tailwind + capa de componentes (`@apply`)
+- `manager-os/static/tailwind.config.js` → tema minimalista (tokens, spacing, tipografía)
+- `manager-os/static/tailwind-precompiled.css` → **generado**, nunca editar a mano
+- Iconos: solo SVG inline (`<symbol>` + `<use>`). Prohibido emoji / icon fonts / raster
+- Regenerar el CSS: `cd manager-os && npm install && npm run css`
 
 ---
 
@@ -221,4 +251,4 @@ kiosk.service         →  cage → kiosk-launch.sh → Firefox
 | Button stays red after config | WiFi takes 5-15s to come up | Progressive retry (40s) already in `script.js` |
 | `Error reading index.html from /static/...` | `STATIC_PATH` not set locally | `STATIC_PATH=$(pwd)/static cargo run` |
 | WiFi not persisting after reboot | `wpa_supplicant@wlan0` not enabled | Check `adagi-kiosk.yaml` runs `systemctl --root="$1" enable wpa_supplicant@wlan0.service` |
-| Firefox `--start-maximized` instead of `--kiosk` | WiFi not up when kiosk starts | Verify `check_wifi()` in `kiosk-launch.sh` returns 0 |
+| Keyboard covers the page | cog launched fullscreen | Keep `COG_PLATFORM_WL_VIEW_MAXIMIZE=1` in `kiosk-launch.sh` |

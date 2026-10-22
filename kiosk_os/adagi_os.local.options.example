@@ -1,0 +1,16 @@
+# Local, private build options — copy to adagi_os.local.options (ignored by
+# git) and fill in. Values here override kiosk_os/adagi_os.options.
+#
+#   cp kiosk_os/adagi_os.local.options.example kiosk_os/adagi_os.local.options
+
+# Preconfigured Wi-Fi for the first boot (optional)
+kiosk_wifi_ssid=
+# 8-63 printable ASCII characters, or 64 hex digits. Empty = open network.
+kiosk_wifi_psk=
+
+# Optional public key added to ~/.ssh/authorized_keys of the kiosk user
+kiosk_ssh_authorized_key=
+
+# Optional password hash of the kiosk user (overrides device.user1passhash).
+# Generate it with: openssl passwd -6
+device_user1passhash=

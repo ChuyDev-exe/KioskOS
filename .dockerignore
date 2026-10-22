@@ -1,0 +1,18 @@
+.git/
+.gitignore
+.github/
+.DS_Store
+.summary_cache.md
+.yamllint
+README.md
+Improvements.md
+build.sh
+docker-compose.yml
+deploy/
+manager-os/target/
+manager-os/node_modules/
+manager-os/.gitignore
+kiosk_os/
+scripts/
+# Minified frontend build output (npm run build)
+manager-os/dist/
